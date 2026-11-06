@@ -105,8 +105,8 @@ internal class BoardScene(private val flow: GameFlow) {
     val ready: Boolean get() = built
 
     /** D50 hover: what a resting pointer is over (null = nothing). Light feedback only; expires after 250 ms. */
-    fun setHover(name: String?) {
-        hoverAt = SystemClock.uptimeMillis()
+    fun setHover(name: String?, sticky: Boolean = false) {
+        hoverAt = SystemClock.uptimeMillis() + if (sticky) 60_000 else 0
         if (name == hover) return
         hover = name
         if (name != null) Log.i(TAG, "HOVER $name")
@@ -146,15 +146,24 @@ internal class BoardScene(private val flow: GameFlow) {
     private fun mark(mesh: MeshResource, m: Material, name: String): ModelEntity =
         ModelEntity(mesh, m).apply { setName(name); enabled = false; tiltRoot.addChild(this) }
 
-    /** Built in a few frames' worth of work on the main thread (design budget.startup: 20 walls + 81 colliders in chunks). */
-    fun install(r: SceneResources, models: Models, seatCard: Entity?) {
+    /**
+     * Built over several frames (design budget.startup: "20 墙 + 81 格碰撞体分 4 帧"): board + rail, cells in two halves,
+     * then walls / pawns / marks; each chunk yields a frame so the first interactive frame never carries the whole build.
+     */
+    suspend fun install(r: SceneResources, models: Models, seatCard: Entity?) {
         if (built) { r.close(); return }
         res = r
         val t0 = SystemClock.elapsedRealtime()
+        val chunks = ArrayList<Long>()
+        fun lap() { chunks += SystemClock.elapsedRealtime() - t0 - chunks.sum() }
         tiltRoot.addChild(clone(models.board, "boardModel"))
         tiltRoot.addChild(collider("board", r.boardShape, r).also { place(it, V3(0f, Layout.BOARD_T / 2, -Layout.BOARD_D / 2)) })
-        for (cell in 0 until Q.CELLS) tiltRoot.addChild(collider("sq:$cell", r.cellShape, r).also { place(it, lay.cellTop(cell, 0.001f)) })
         tiltRoot.addChild(collider("rail", r.railShape, r).also { place(it, V3(0f, Layout.BOARD_T + 0.012f, -Layout.RAIL / 2)) })
+        lap(); kotlinx.coroutines.delay(16)
+        for (cell in 0 until 41) tiltRoot.addChild(collider("sq:$cell", r.cellShape, r).also { place(it, lay.cellTop(cell, 0.001f)) })
+        lap(); kotlinx.coroutines.delay(16)
+        for (cell in 41 until Q.CELLS) tiltRoot.addChild(collider("sq:$cell", r.cellShape, r).also { place(it, lay.cellTop(cell, 0.001f)) })
+        lap(); kotlinx.coroutines.delay(16)
         for (side in 0..1) repeat(Q.WALLS) { k ->
             val e = clone(models.wall, "wall:$side:$k")
             e.addChild(collider("wall:$side:$k:hit", r.wallShapeH, r))
@@ -184,7 +193,8 @@ internal class BoardScene(private val flow: GameFlow) {
         fallback.forEach { it.removeFromParent() }
         fallback = emptyList()
         built = true
-        Log.i(TAG, "SCENE built in ${SystemClock.elapsedRealtime() - t0} ms seat=${Layout.SEAT_CENTRE} ${Layout.SEAT_W_DP}x${Layout.SEAT_H_DP}dp")
+        lap()
+        Log.i(TAG, "SCENE built in ${SystemClock.elapsedRealtime() - t0} ms chunks=$chunks seat=${Layout.SEAT_CENTRE} ${Layout.SEAT_W_DP}x${Layout.SEAT_H_DP}dp")
         onFrame(0f)
     }
 

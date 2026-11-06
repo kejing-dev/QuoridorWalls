@@ -372,7 +372,7 @@ class GameFlow(
     /** Debug `hover e3h` / the same as holding the pointer over that slot. */
     fun holdOver(w: Wall?) {
         val h = s.hold ?: return
-        if (w == null) { tracker.reset(); holdAt(1f, 1f); return }
+        if (w == null) { tracker.reset(); holdAt(0f, -0.03f); return }   // just in front of the board: off the grid
         tracker.reset()
         holdAt(layout.crossX(w.c), layout.crossS(w.r))
         if (w.o != h.orient) toggleOrient()

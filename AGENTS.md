@@ -1,84 +1,83 @@
-# 乌尔王族棋 Royal Game of Ur: project guidance
+# 围墙棋 Quoridor Walls: project guidance
 
-Finkel-rules Royal Game of Ur for PICO OS 6 Shared Space, PICO Spatial SDK BOM 6.1.9, package `io.embodit.quoridorwalls`, v0.1.1.
-Design contract: spatial-app-factory `apps/royal-ur/design-package.json` (v1.2 after QA round 1; profile A12 one main loop, `v2[]` not built:
-no Walker rules, no one-tap move, no replay / codes, no skins, no pause menu, no board flip, no third AI level).
-Skeleton from the Five Stones project (itself from kejing-dev/CloudAir v1.0.2: two containers, theme, sound pool, level gate);
-the tetrahedral dice solver is CloudAir's DiceSolver rewritten for four-sided dice; the Ur rules / AI / flow are new.
+Gigamic Quoridor (you vs the AI) for PICO OS 6 Shared Space, PICO Spatial SDK BOM 6.1.9, package `io.embodit.quoridorwalls`, v0.1.0.
+Design contract: spatial-app-factory `apps/quoridor-walls/design-package.json` (profile A12: one main loop, everything in `v2[]`
+is not built: no two players, no four players, no replay / notation, no tilt / skins, no five levels, no puzzles, no timer, no
+pointer-driven wall orientation, no point-hover-point wall path). Skeleton from the Royal Ur project (itself Five Stones / Cloud Air:
+two containers, theme, sound pool, level gate, board-input template); rules, engine, scene and pages are new.
 
 ## Surfaces
-- **Board volume** (default container `RoyalBoard`, Volumetric 0.80 x 0.30 x 0.42 m, fixed scale, gravity aligned, uniform
-  resize). `board.glb` (0.53 x 0.03 x 0.23 m inlaid box, 20 raised shell tiles with five patterns, 5 rosettes) on `tiltRoot`
-  (0 / 10 / 15°, pivot on the near-bottom edge). v1.2 (QA q1-1, the reset eye is almost level): your start tower stands
-  left of the board, your finish tower and the cup right of it (flat, never tilt); the far side's towers stay in the A-row
-  gaps; the tray sits front-right, the seat tag + dice tag in the low zone in front (nothing in front of the board is
-  taller than 2.8 cm). 14 pieces (obsidian near / red jasper far) and all rings are scene children, tipped with the board
-  when on it. Rings: a coloured unlit ring (0.95) on top, a dark under-ring 1 mm wider each side and 0.6 mm lower (q1-2).
-- **Control window** (`RoyalControl`, Planar 560 x 620 dp, `Placement.right(RoyalBoard)`): native SpatialUI `TabBar`, four pages
-  对局 / 新局 / 规则 / 设置. Every page: header with [静音], content vertically centred (blank <= 25 %, `tools/blank.py`).
-  Game page: dice box, then [掷骰] 132 + your-pieces stats, or one button per movable piece (T14: consequence + mini route,
-  `GameFlow.panelPick` = a pinch on that piece; [走 · …] when only one move), or a notice card. Confirmations are a whole-page
-  card and lock the volume (`GameFlow.uiLocked` / `confirm`). Settings switches are On / Off segments. Settings [重开控制窗] closes and reopens beside the board (profile D44:
-  no "in front of you" in Shared Space). [退出应用] closes both containers, removes the tasks, exits the process.
+- **Board volume** (default container `QuoridorBoard`, Volumetric 0.56 x 0.36 x 0.62 m, fixed scale, gravity aligned, uniform
+  resize). `board.glb` (0.49 x 0.025 x 0.53 m: teal lacquer cells raised 1.5 mm, grooves, walnut frame, two rails, brass inlays)
+  hangs from `tiltRoot` at its near-bottom edge (0, -0.18, +0.27), tipped 20°. 20 maple `wall.glb` (9.6 x 2.4 x 0.6 cm) lie
+  flat in the rails (5 per layer, 2 layers, the top layer is used first), 2 turned pawns (ivory / cinnabar). Marks (rings, dots,
+  path bands, ghost wall, red flash, slot glows) are SDK meshes. Seat card (AttachmentPanel 0.26 x 0.035 m) stands on the
+  floor at the front: whose turn + both wall counts, or why the wall in hand can't go there.
+- **Control window** (`QuoridorControl`, Planar 520 x 400 dp, `Placement.right(QuoridorBoard)`): native SpatialUI `TabBar`,
+  pages 对局 / 新局 / 规则 / 设置. Confirmations (resign / new game / quit) are whole-page cards and lock the volume.
+  Settings [重开控制窗] closes and reopens beside the board (profile D44). [退出应用] closes both containers, removes the
+  tasks, exits the process.
 
 ## Code
 | Path | What |
 |---|---|
-| `domain/Ur.kt` | route (progress 0..15), legal moves, capture / rosette / exact bear-off, winner |
-| `domain/Dice.kt` | `Tetra` solver (240 Hz rigid tetrahedron, result committed first, symmetry swap, no last-frame flip), `Roll` |
-| `domain/Ai.kt` | EASY random / SMART priority table |
-| `domain/GameFlow.kt` | the single `PlayState`, phases S03..S11, AI timing, undo (move, not throw) / redo, save, debug freeze |
+| `domain/Quoridor.kt` | cells, walls, `Pos`, `Board` (steps incl. straight / diagonal jumps, wall fit + BFS legality, the one BFS `dist` / `path`) |
+| `domain/Engine.kt` | negamax + alpha-beta, EASY (random top-3 steps, walls only when you are <= 4 away, half the time) / MEDIUM depth 2 / HARD depth 3; candidate walls cut the opponent's shortest path |
+| `domain/GameFlow.kt` | the single `PlayState`: S03 idle, S04 selected, S05 anim, S06 AI, S07 wall in hand, S08 bounce, S09 result; commit-before-animate, watchdog, undo, hint, bands, save |
+| `domain/Layout.kt` | every metre (board-local frame), `SlotTracker` (slotAt + 3.1 cm hysteresis + EMA), occlusion boxes / eyes |
 | `domain/Game.kt` | config, settings, snapshots, `SaveCodec` (`files/game.txt`, atomic + backup) |
-| `domain/Layout.kt` | metres for everything, model boxes, tag rectangles, eyes (unit-tested D35 check) |
-| `ui/board/*` | `BoardScene` (all entities; per-frame placement in `onFrame`, driven by `BoardFrameSystem`), `BoardScreen` (taps, tags) |
-| `ui/control/*` | control window pages; every Text logs `OVERFLOW <tag>` when cut |
+| `ui/board/*` | `BoardScene` (entities, per-frame placement in `onFrame` from `BoardFrameSystem`), `BoardScreen` (board-input listener, seat card), `input/BoardInput.kt` (factory template, D50) |
+| `ui/control/*` | the window pages; every Text logs `OVERFLOW <tag>` when cut |
 | `platform/*` | Application / Graph, SoundPlayer, WindowCtl (+ LevelGate); debug builds add `DebugCommandReceiver` |
-| `tools/` | `realtap_game.py` (one whole game with real taps), `blank.py` (window blank band), `build_models.py` (all GLBs, `--test-f` = F↑ tiles), `make_sounds.py`, `build_icon.py`, `loudness.py`, `shots.py`, `ru.sh` |
+| `tools/` | `build_models.py` (all GLBs, `--test-f` = F↑ textures), `import_cc0_sounds.py` (Kenney CC0), `make_sounds.py` (UI cues), `loudness.py`, `build_icon.py`, `blank.py`, `qw.sh`, `shots.py` |
 
-Rules - state - render: the scene only renders `PlayState`. Volume input goes through the factory board-input template
-(`ui/board/input/BoardInput.kt`, D50: short drags count as taps, targets resolved up the parent chain); a pinch on a collider (`cup`, `tray`, `board`, `sq:B3`, `pc:<side>:<p>`,
-`tw:<side>:0|15`) goes through `route()` to the same `GameFlow` calls the panel and the debug broadcast use.
+Input (D50): one `Modifier.boardInput` on the SpatialView. Targets: `sq:<cell 0..80>`, `pawn:<side>`, `rail` (your rail and the
+walls lying in it), `ghost`, `board`. A pinch on a lit cell steps (selected or not, D27); on your pawn selects; holding on the
+rail and dragging past 2.5 cm lifts the top wall (S07): drag deltas are added to the wall's start point and projected on the
+board plane, `SlotTracker` snaps the ghost, letting go sets / bounces / returns it. A pinch on the ghost (other hand) or the
+window's [横 / 竖] flips it. With the control window closed (S10) the first pinch on the volume only reopens it.
 
 ## Build / test (kj-mbp-m5)
 ```bash
 export JAVA_HOME=~/.pico/primer-cli/jdk/jdk-21.0.13+9/Contents/Home
-./gradlew assembleDebug :app:testDebugUnitTest      # 28 JVM tests: rules, dice, AI strength, flow / undo / save, occlusion rays (measured reset eye), level gate
-python3 tools/build_models.py ; python3 tools/make_sounds.py ; python3 tools/build_icon.py --icon512 icon.png
-DEV=emulator-5562 tools/ru.sh install
+./gradlew assembleDebug :app:testDebugUnitTest      # 57 JVM tests: rules (perft 131 + independent implementation), AI strength, slotAt jitter, flow, occlusion
+python3 tools/build_models.py ; python3 tools/import_cc0_sounds.py ; python3 tools/make_sounds.py ; python3 tools/build_icon.py --icon512 icon.png
+DEV=emulator-5560 tools/qw.sh install
 ```
-Emulators are shared: borrow with `python3 -I bin/emu_borrow.py borrow royal-ur` in the factory, return after.
-Reinstalling over a newer versionCode fails silently in `adb install -r`; `ru.sh install` passes `-d`.
+Emulators are shared: `python3 -I bin/emu_borrow.py borrow quoridor-walls` in the factory, `return` after. Reset the camera
+(`pico-cli camera reset`) before launching: the windows open where the camera looks.
 
 ## Debug broadcast (QA screenshots)
-`adb shell am broadcast -a io.embodit.quoridorwalls.DEBUG -p io.embodit.quoridorwalls --es cmd <cmd> --es a "<arg>"` (or `tools/ru.sh cmd <cmd> [arg]`). Log tag `RoyalUr`.
+`adb shell am broadcast -a io.embodit.quoridorwalls.DEBUG -p io.embodit.quoridorwalls --es cmd <cmd> --es a "<arg>"`
+(or `tools/qw.sh cmd <cmd> [arg]`). Log tag `Quoridor` (`STATE`, `MOVE`, `WALL`, `HOLD`, `REJECT`, `AI`, `UNDO`, `RESULT`,
+`WINDOW`, `PAGE`, `OVERFLOW`, `PLACEMENT`, `WATCHDOG`; input lines `TAP / DRAG / HOVER / POINTER` also in `files/input-log.txt`).
 
 | State | Command | Notes |
 |---|---|---|
-| S00 准备中 | `s00hold on`, force-stop + launch, capture within 10 s, `s00hold off` | dark slab + cylinder stand-in |
-| S01 第一次 | `goto S01` | default game (AI easy, you first) at S03 + rules page; first pinch on the cup ends it |
+| S00 准备中 | `s00hold on`, force-stop + launch, capture within 10 s, `s00hold off` | teal slab stand-in |
+| S01 第一次 | `goto S01` | easy game (you first) + rules page; [开始下棋] |
 | S02 新局 | `goto S02` | [继续上一盘] on top when a save exists |
-| S03 待掷 | `goto S03` | cup ring breathes |
-| S04 掷骰中 | `goto S04` | frozen 450 ms into the throw (cup tipped, dice in the air) |
-| S05 待选子 | `goto S05` (roll 3) · `hint on` = amber ring | lit pieces |
-| S06 已选子 | `goto S06` | capture preview: orange target ring, the rival piece flashes |
-| S07 走子中 | `goto S07` (capture, rival at the arc top) · step / off: `setup` + `roll` + `pick` + `freeze 110` + `move` | |
-| S08 再来一把 | `goto S08` | held by freeze; `freeze off` to go on |
-| S09 走不了 | `goto S09` | 0 roll, held |
-| S10 对面在想 | `goto S10` | AI held (`hold off` lets it go) |
-| S11 终局 | `goto S11` | you bear off the last piece |
-| S12 设置 / S13 规则 | `goto S12` / `goto S13` · `exitask` | |
-| S14 确认 | `goto S14` (restart) · `resign` · `exitask` · 2P undo: `new "2p - me"`, two moves, `undo` · `confirm` / `no` | |
-| S15 非法 | `goto S15` | tapping a rival piece, held |
-| S16 恢复 | force-stop after a roll, relaunch | back to S05 with the same roll |
-Modifiers: `lang zh|en|system`, `reduced on|off`, `sound on|off`, `volume 0-2`, `hint on|off`, `coach on|off`, `tilt 0|10|15`,
-`roll N`, `setup "<14 hex digits> [side]"` (near 7 then far 7, 0 = start tower, f = off), `new "<ai|2p> <easy|smart> <me|them|random>"`,
-`pick P`, `move`, `cancel`, `tap <collider>`, `freeze MS|off`, `hold on|off`, `seed N`, `reopen`, `closepanel`, `dump`, `evidence`.
-`freeze` only holds animations that start after it.
+| S03 待走 | `goto S03` | `coach on` = guided first game (lit cells / slots); `hint on` = yellow ring / ghost |
+| S04 已选子 | `goto S04` | you e4, AI e5: dots + jump target |
+| S05 走子中 | `goto S05` | jump e4-e6 held at 160 ms (`freeze off` after) |
+| S06 AI 在想 | `goto S06` | expert, held (`hold off` lets it move) |
+| S07 墙在手 | `goto S07` (legal e6h) · `goto S07 c7h` (red: crosses c7v) · `hover ""` (off the board, grey) | `orient` flips |
+| S08 违规弹回 | `goto S08` | f8v would box the AI in; red flash held at 120 ms (`freeze off` after) |
+| S09 终局 | `goto S09` · `resign` + `confirm` | you step onto e9 |
+| S10 面板已关 | `goto S10` / `closepanel` · `reopen` | |
+| S11 设置 / S12 规则 | `goto S11` / `goto S12` · `exitask` | |
+| S13 确认 | `goto S13` (resign) · `exitask` · `newask` (only with progress) · `confirm` / `no` | |
+| S16 存档恢复 | force-stop mid game, relaunch | |
+Also: `tap e5|pawn:0|rail|ghost|board`, `move e2`, `pick` / `hover e3h` / `drop` / `back`, `wall e3h`, `setup "you=e4 ai=e6 walls=e3h0.d5v1 left=9,9 side=0"`,
+`new "you|ai|random 1-3"`, `undo`, `hint on|off`, `bands on|off`, `lang zh|en|system`, `sound on|off`, `volume 0-2`, `reduced on|off`,
+`coach on|off`, `seed N`, `freeze MS|off`, `hold on|off`, `hover-cell e5`, `dump`, `evidence`.
+
+## QA screenshot list
+S00 S01 S02 S03 (+首局照亮 / 提示 / 墙用完 / 静音) S04 S05 S06 S07 (合法 / 红 / 盘外灰 / 首局亮槽) S08 (+减少动态) S09 (赢 / 认输)
+S10 S11 S12 S13 (认输 / 新局 / 退出) S16, each in 中文 and English. S14 / S15 are not in v1 (design: 不适用).
 
 ## Known
-- 3D taps (cup, pieces, squares) are not reachable by `pico-cli interact` (only the 2D window publishes nodes); on the emulator they
-  were driven by the debug broadcast through the same `route()`. Controller ray / gaze + pinch on 4.5 cm pieces: headset only.
-- Sounds are SoundPool (not spatial). Physical sounds are Kenney CC0 recordings (`tools/import_cc0_sounds.py`); UI cues are synthesised (`tools/make_sounds.py`).
-- Hover: a faint ring where a resting pointer is (`BoardScene.setHover`, debug `hover <collider>`); whether Shared Space delivers hover pointer events is not verified on a headset. Seat / dice tags face +Z (no head pose in Shared Space for a billboard).
-- Shared Space places the volume where the last task was; after `adb install -r` with the app running it may come back off-centre:
-  exit with [退出应用] (removes the task), reset the camera, relaunch.
+- 3D taps / drags are not reachable by `pico-cli interact` on the Mac emulator (only the window publishes nodes); the volume was
+  driven by the debug broadcast through the same `GameFlow` calls. Controller ray / hand ray / eye-hand on the board: headset only.
+- Controller secondary button (A / X) for the wall orientation is not wired (no key events reach a Shared Space volume that we could
+  verify); orientation = [横 / 竖] or a pinch on the ghost. Pawn drag-to-move is not built (tap path only).

@@ -57,7 +57,7 @@ class DebugCommandReceiver : BroadcastReceiver() {
                     game(); setup("you=e4 ai=e5 side=0"); flow.freeze(160); flow.tapCell(Q.parseCell("e6")!!)
                 }
                 "S06" -> { game(Engine.HARD); flow.holdThinking = true; setup("you=e3 ai=e7 walls=d5h1 side=1") }
-                "S07" -> { game(); setup("you=e3 ai=e7 side=0"); if (flow.pickWall()) flow.holdOver(Q.parseWall(a.substringAfter(' ', "e6h").ifBlank { "e6h" }) ?: Wall(4, 5, io.embodit.quoridorwalls.domain.Orient.H)) }
+                "S07" -> { game(); setup("you=e3 ai=e7 walls=c7v1 side=0"); if (flow.pickWall()) flow.holdOver(Q.parseWall(a.substringAfter(' ', "e6h").ifBlank { "e6h" }) ?: Wall(4, 5, io.embodit.quoridorwalls.domain.Orient.H)) }
                 "S08" -> {
                     // a wall that would box the AI in: walls round e9 leave only the f8 gap, the rejected wall closes it
                     game(); setup("you=e2 ai=e9 walls=d8v1.e8h0 left=9,9 side=0"); flow.freeze(120)
@@ -109,7 +109,7 @@ class DebugCommandReceiver : BroadcastReceiver() {
             "welcome" -> flow.welcomeDone()
             "reopen" -> graph.window.reopen()
             "closepanel" -> graph.window.closeControlOnly()
-            "hover-cell" -> SceneHolder.scene?.setHover(Q.parseCell(a)?.let { "sq:$it" })
+            "hover-cell" -> SceneHolder.scene?.setHover(Q.parseCell(a)?.let { "sq:$it" }, sticky = true)
             "dump", "state" -> Log.i(TAG, "DUMP ${flow.dump()} page=${Ui.page} window=${graph.window.panelState}")
             "evidence" -> Log.i(TAG, "EVIDENCE ${SceneHolder.scene?.evidence() ?: "no scene"}")
             else -> Log.w(TAG, "unknown debug command: $cmd")
