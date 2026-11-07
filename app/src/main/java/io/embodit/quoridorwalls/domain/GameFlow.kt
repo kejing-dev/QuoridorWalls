@@ -176,7 +176,9 @@ class GameFlow(
      */
     fun start() {
         val saved = store.load()
-        if (saved != null && saved.now.pos.winner() == null) { restore(saved); return }
+        // a save of the untouched opening while the welcome was never seen is not a game yet: show S01 again (QA r2 known issue)
+        val untouched = saved != null && saved.now.turnNo == 0 && saved.undo.size <= 1 && !settings().firstRunDone
+        if (saved != null && saved.now.pos.winner() == null && !untouched) { restore(saved); return }
         if (!settings().firstRunDone) {
             newGame(GameConfig(Engine.EASY, Q.YOU))
             set(s.copy(welcome = true))

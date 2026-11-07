@@ -291,4 +291,26 @@ class FlowTest {
         assertEquals(pos, h2.st.pos)
         assertEquals(c("e3"), h2.st.pos.pawns[Q.YOU])
     }
+
+    /** QA q2-1: the saved position is in the state the moment start() returns, so the scene's first apply already shows it. */
+    @Test fun startRestoresTheSavedGameSynchronously() = runTest {
+        val store = MemStore()
+        val h = Harness(this, store); game(h, "you=e3 ai=e7 walls=d5h1 side=0")
+        h.flow.onBackground()
+        val h2 = Harness(this, store)
+        h2.flow.start()   // no runCurrent: nothing scheduled may be needed to see the game
+        assertTrue(h2.st.restored)
+        assertEquals(c("e3"), h2.st.pos.pawns[Q.YOU]); assertEquals(c("e7"), h2.st.pos.pawns[Q.AI]); assertEquals(1, h2.st.pos.walls.size)
+    }
+
+    /** QA r2 known issue: opened and quit without a single move -> the welcome (S01) comes back, not "接着上次下". */
+    @Test fun anUntouchedFirstGameShowsTheWelcomeAgain() = runTest {
+        val store = MemStore()
+        val h = Harness(this, store, settings = Settings()); h.flow.start(); runCurrent()
+        assertTrue(h.st.welcome)
+        h.flow.onBackground()
+        val h2 = Harness(this, store, settings = Settings())
+        h2.flow.start(); runCurrent()
+        assertTrue(h2.st.welcome); assertFalse(h2.st.restored)
+    }
 }

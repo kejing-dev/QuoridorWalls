@@ -20,7 +20,7 @@ MAP = {
     # UI cues are Kenney interface-sounds CC0 recordings too (design sound.list): no synthesis except the band swish
     "illegal": (0.3, ["kenney_interface-sounds/Audio/error_004.ogg"]),
     "win": (1.2, ["kenney_interface-sounds/Audio/confirmation_002.ogg"]),
-    "lose": (1.2, ["kenney_interface-sounds/Audio/back_002.ogg"]),
+    "lose": (0.6, ["kenney_interface-sounds/Audio/minimize_005.ogg"]),   # a soft falling sweep (back_002 was a 34 ms click)
     "place": (0.2, ["kenney_impact-sounds/Audio/impactWood_light_000.ogg", "kenney_impact-sounds/Audio/impactWood_light_002.ogg", "kenney_impact-sounds/Audio/impactWood_light_003.ogg"]),
     "grab": (0.3, ["kenney_casino-audio/Audio/card-slide-1.ogg", "kenney_casino-audio/Audio/card-slide-5.ogg", "kenney_casino-audio/Audio/card-slide-6.ogg"]),
     "bounce": (0.25, ["kenney_impact-sounds/Audio/impactGeneric_light_001.ogg", "kenney_impact-sounds/Audio/impactGeneric_light_002.ogg"]),

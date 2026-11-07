@@ -422,7 +422,7 @@ private fun Group(title: String, tag: String, content: @Composable () -> Unit) {
 private fun RulesPage(state: PlayState, graph: Graph) {
     PageColumn {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            RulesDiagram()
+            RulesDiagram(graph.settings.value.skin)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Txt(stringResource(if (state.welcome) R.string.welcome_title else R.string.rules_title), "rules/title", style = PicoTheme.typography.titleLarge)
                 listOf(R.string.rules_1, R.string.rules_2, R.string.rules_3).forEachIndexed { i, id ->
@@ -457,21 +457,29 @@ private fun RulesPage(state: PlayState, graph: Graph) {
 
 /** The design's one picture: a 9 x 9 board, your pawn near, a wall across the middle, your gold path going round it. */
 @Composable
-private fun RulesDiagram() {
+private fun RulesDiagram(skin: Skin) {
+    // the picture uses the board's own skin colours (QA r2: it was the old teal board with orange / white pawns)
+    val modern = skin == Skin.MODERN
+    val frame = if (modern) androidx.compose.ui.graphics.Color(0xFFE2D3B8) else QColors.Walnut
+    val cellC = if (modern) androidx.compose.ui.graphics.Color(0xFFE3EAE6) else androidx.compose.ui.graphics.Color(0xFF193631)
+    val wallC = if (modern) androidx.compose.ui.graphics.Color(0xFF33383D) else QColors.Maple
+    val you = if (modern) androidx.compose.ui.graphics.Color(0xFFFF6B57) else QColors.Ivory
+    val them = if (modern) androidx.compose.ui.graphics.Color(0xFF1E3A68) else androidx.compose.ui.graphics.Color(0xFFC55C3D)
+    val band = if (modern) you else QColors.BandGold
     Canvas(Modifier.size(132.dp)) {
         val cell = size.width / 9f
-        drawRoundRect(QColors.Walnut, Offset.Zero, size, CornerRadius(8f, 8f))
-        for (r in 0..8) for (c in 0..8) drawRoundRect(QColors.Lacquer, Offset(c * cell + 2f, r * cell + 2f), Size(cell - 4f, cell - 4f), CornerRadius(3f, 3f))
+        drawRoundRect(frame, Offset.Zero, size, CornerRadius(8f, 8f))
+        for (r in 0..8) for (c in 0..8) drawRoundRect(cellC, Offset(c * cell + 2f, r * cell + 2f), Size(cell - 4f, cell - 4f), CornerRadius(3f, 3f))
         fun ctr(c: Int, r: Int) = Offset((c + 0.5f) * cell, (8 - r + 0.5f) * cell)
         // gold path e1 -> e3 -> c3 (round the wall) -> c9
         val path = listOf(ctr(4, 0), ctr(4, 3), ctr(2, 3), ctr(2, 8))
         val p = Path().apply { moveTo(path[0].x, path[0].y); path.drop(1).forEach { lineTo(it.x, it.y) } }
-        drawPath(p, QColors.BandGold, style = Stroke(5f))
+        drawPath(p, band, style = Stroke(5f))
         // a wall across d4-e4 / f4 (two squares wide) between rows 4 and 5
-        drawRoundRect(QColors.Maple, Offset(3 * cell, (8 - 4) * cell - 3f), Size(2 * cell, 6f), CornerRadius(2f, 2f))
-        drawRoundRect(QColors.Maple, Offset(4 * cell, (8 - 3) * cell - 3f), Size(2 * cell, 6f), CornerRadius(2f, 2f))
-        drawCircle(QColors.Ivory, cell * 0.36f, ctr(4, 0))
-        drawCircle(QColors.Cinnabar, cell * 0.36f, ctr(4, 8))
+        drawRoundRect(wallC, Offset(3 * cell, (8 - 4) * cell - 3f), Size(2 * cell, 6f), CornerRadius(2f, 2f))
+        drawRoundRect(wallC, Offset(4 * cell, (8 - 3) * cell - 3f), Size(2 * cell, 6f), CornerRadius(2f, 2f))
+        drawCircle(you, cell * 0.36f, ctr(4, 0))
+        drawCircle(them, cell * 0.36f, ctr(4, 8))
     }
 }
 

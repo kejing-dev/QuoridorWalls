@@ -507,7 +507,10 @@ internal class BoardScene(private val flow: GameFlow) {
 
     /** The real entities a hit on [cell] / a pawn / the rail can land on, deepest first (for the debug `replay`). */
     fun replayEntities(what: String): List<Entity> {
-        fun deepest(e: Entity): Entity { var x = e; while (x.getChildren().isNotEmpty()) x = x.getChildren().first(); return x }
+        fun deepest(e: Entity): Entity {
+            var x = e
+            while (true) { val next = x.getChildren().firstOrNull { it.enabled } ?: return x; x = next }
+        }
         fun named(n: String): Entity? = findByName(tiltRoot, n)
         return when {
             what.startsWith("sq:") -> listOfNotNull(named(BoardNames.marker(what.removePrefix("sq:").toInt())), named(what))
@@ -522,6 +525,10 @@ internal class BoardScene(private val flow: GameFlow) {
         for (c in e.getChildren()) findByName(c, name)?.let { return it }
         return null
     }
+
+    /** What the first frame shows (QA q2-1: must equal the saved skin and position). */
+    fun firstFrame(): String = "skin=$skinShown you=${Q.name(state.pos.pawns[0])} ai=${Q.name(state.pos.pawns[1])} walls=${state.pos.walls.size} " +
+        "pawn0=${pawns.getOrNull(0)?.transform()?.position} built=$built"
 
     fun evidence(): String {
         val p = pawns.mapIndexed { i, e -> "pawn$i=${e.transform().position}" }.joinToString(" ")

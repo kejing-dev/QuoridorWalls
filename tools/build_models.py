@@ -47,8 +47,8 @@ CONTENT_X = -0.05
 
 # skins (design v0.1.7 skins): cells, grooves, frame, baseline inlay
 SKINS = {
-    "modern": {"cells": (0xDC, 0xE5, 0xE0), "grooves": (0xB9, 0xC7, 0xC0), "frame": (0xE2, 0xD3, 0xB8), "line": (0xF7, 0xF2, 0xE8), "cellRough": 0.72, "frameRough": 0.6, "lineMetal": 0.0, "grain": 0.06},
-    "classic": {"cells": (0x4D, 0x8C, 0x82), "grooves": (0x30, 0x63, 0x5B), "frame": (0x4A, 0x32, 0x22), "line": BRASS, "cellRough": 0.35, "frameRough": 0.62, "lineMetal": 0.85, "grain": 0.16},
+    "modern": {"cells": (0xF0, 0xF4, 0xF1), "grooves": (0xC8, 0xD2, 0xCC), "frame": (0xE2, 0xD3, 0xB8), "line": (0xF7, 0xF2, 0xE8), "cellRough": 0.72, "frameRough": 0.6, "lineMetal": 0.0, "grain": 0.06},
+    "classic": {"cells": (0x19, 0x36, 0x31), "grooves": (0x11, 0x26, 0x22), "frame": (0x4A, 0x32, 0x22), "line": BRASS, "cellRough": 0.35, "frameRough": 0.62, "lineMetal": 0.85, "grain": 0.16},
 }
 P = SKINS["modern"]
 

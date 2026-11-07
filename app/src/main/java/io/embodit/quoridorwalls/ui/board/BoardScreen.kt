@@ -69,6 +69,7 @@ import io.embodit.quoridorwalls.ui.theme.localized
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /** Runs the board's per-frame motion inside the ECS (never in Compose) and feeds the window's level gate. */
@@ -149,7 +150,9 @@ fun BoardScreen() {
                 runCatching {
                     // gate:allow geometry S00 loading stand-in (design lifecycle "首帧兜底 一块深青绿平板"), removed when the GLBs are in
                     val slab = MeshResource.createBox(Vector3(Layout.BOARD_W, Layout.BOARD_T, Layout.BOARD_D), cornerRadius = 0.003f)
-                    val mat = PhysicallyBasedMaterial.create().apply { setBaseColor(Color4(0.12f, 0.31f, 0.29f, 1f)); setRoughness(0.6f) }
+                    // the stand-in takes the saved skin's cell colour, so nothing changes colour when the models arrive
+                    val c = if (graph.settings.value.skin == Skin.CLASSIC) Color4(0.12f, 0.25f, 0.23f, 1f) else Color4(0.94f, 0.96f, 0.95f, 1f)
+                    val mat = PhysicallyBasedMaterial.create().apply { setBaseColor(c); setRoughness(0.7f) }
                     slab to mat
                 }.getOrNull()
             }
@@ -166,9 +169,16 @@ fun BoardScreen() {
             Log.i(TAG, "MODELS loaded=${models != null} in ${android.os.SystemClock.elapsedRealtime() - t0} ms")
             val prefs = context.getSharedPreferences("debug", android.content.Context.MODE_PRIVATE)
             if (prefs.getBoolean("s00hold", false)) { Log.i(TAG, "S00 hold 10 s"); kotlinx.coroutines.delay(10_000) }
+            // QA q2-1: the scene gets the saved game and skin before it is built and again right after, so the first frame
+            // already shows them; `initial` returns at once (the update block only runs after it)
+            scene.apply(graph.flow.state.value, graph.settings.value)
             if (models != null) scene.install(resources, models, attachments.entity(SEAT))
-            // D1 "一打开就要看得见": where things are 1 / 3 / 5 s after start (window state, board / pawns / seat card)
-            for (s in listOf(1, 2, 2)) { kotlinx.coroutines.delay(s * 1000L); Log.i(TAG, "PLACEMENT t+${android.os.SystemClock.elapsedRealtime() - t0}ms window=${graph.window.panelState} ${scene.evidence()}") }
+            scene.apply(graph.flow.state.value, graph.settings.value)
+            Log.i(TAG, "SCENE first frame ${scene.firstFrame()}")
+            // D1 "一打开就要看得见": where things are 1 / 3 / 5 s after start, logged off the initial block
+            graph.scope.launch {
+                for (s in listOf(1, 2, 2)) { kotlinx.coroutines.delay(s * 1000L); Log.i(TAG, "PLACEMENT t+${android.os.SystemClock.elapsedRealtime() - t0}ms window=${graph.window.panelState} ${scene.evidence()}") }
+            }
         },
         update = { content, _ ->
             if (viewSize != IntSize.Zero) {

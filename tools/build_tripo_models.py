@@ -3,7 +3,7 @@ venv (trimesh):  ~/.factory-venv/bin/python tools/build_tripo_models.py [~/Downl
 
   pawn_modern_you / pawn_modern_ai   modern-pawn-B-3000 -> dia 3.2 x 2.4 cm, welded + smooth normals, solid matte coral #FF6B57 / navy #1E3A68
   pawn_classic_you                   pawn-A-ivory-3000  -> dia 3.2 x 2.4 cm with its ivory + brass texture
-  pawn_classic_ai                    same mesh, solid deep cinnabar lacquer #5A1712 (no texture: ivory x red renders brown)
+  pawn_classic_ai                    same mesh, solid terracotta vermilion #C55C3D (v0.1.2) (no texture: ivory x red renders brown)
   (wall_classic is procedural in tools/build_models.py: the pressed-flat Tripo wall-B rendered a flat grey face)
 Origins: pawns at the bottom centre, wall at its centre. All OPAQUE.
 """
@@ -92,5 +92,6 @@ if __name__ == "__main__":
     cp = fit_pawn(load("pawn-A-ivory-3000.glb"))
     # v0.1.1 render check: the raw ivory texture rendered at L* 64 against jade cells 35 -> lifted
     export(brighten(cp.copy(), 1.25, 0.8), "pawn_classic_you")
-    export(solid(cp, (0x5A, 0x17, 0x12), 0.35), "pawn_classic_ai")
+    # v0.1.2 (QA r2 colour advice): a brighter terracotta vermilion so it sits ~25 L* above the darker jade cells
+    export(solid(cp, (0xC5, 0x5C, 0x3D), 0.4), "pawn_classic_ai")
     # wall_classic: tools/build_models.py (the flattened Tripo wall-B lost its front-face UVs and rendered flat grey)
