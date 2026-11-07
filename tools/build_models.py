@@ -48,7 +48,7 @@ CONTENT_X = -0.05
 # skins (design v0.1.7 skins): cells, grooves, frame, baseline inlay
 SKINS = {
     "modern": {"cells": (0xDC, 0xE5, 0xE0), "grooves": (0xB9, 0xC7, 0xC0), "frame": (0xE2, 0xD3, 0xB8), "line": (0xF7, 0xF2, 0xE8), "cellRough": 0.72, "frameRough": 0.6, "lineMetal": 0.0, "grain": 0.06},
-    "classic": {"cells": (0x3F, 0x7A, 0x72), "grooves": (0x2A, 0x57, 0x51), "frame": (0x4A, 0x32, 0x22), "line": BRASS, "cellRough": 0.35, "frameRough": 0.62, "lineMetal": 0.85, "grain": 0.16},
+    "classic": {"cells": (0x4D, 0x8C, 0x82), "grooves": (0x30, 0x63, 0x5B), "frame": (0x4A, 0x32, 0x22), "line": BRASS, "cellRough": 0.35, "frameRough": 0.62, "lineMetal": 0.85, "grain": 0.16},
 }
 P = SKINS["modern"]
 
@@ -343,6 +343,20 @@ def build_wall_modern():
     m.write("wall_modern", [mat("charcoal", (0x33, 0x38, 0x3D), rough=0.62)])
 
 
+def build_wall_classic():
+    """Classic skin wall: maple body with a walnut top edge (the look of Tripo wall-B; the flattened Tripo mesh lost its
+    front-face UVs and rendered flat grey, so this is the design's fallback "程序化圆边盒 + 贴图")."""
+    m = Mesh()
+    a, b, d = WALL_L / 2, WALL_H / 2, WALL_T / 2
+    # u along the length, v by height (top = walnut band); top face samples the walnut band too
+    chamfer_box(m, 0, a, b, d, 0.001, lambda p: ((p[0] + a) / (2 * a), 0.02 if p[1] >= b - 0.0005 else 1 - (p[1] + b) / (2 * b)))
+    # a pale maple (render check v0.1.1: the vertical face renders ~35 L* under the key light; #F6E7C4 keeps it bright)
+    tex = grain(512, 128, (0xF6, 0xE7, 0xC4), horizontal=True, seed=11, contrast=0.07, freq=0.22)
+    walnut = grain(512, 30, WALNUT, horizontal=True, seed=12, contrast=0.14, freq=0.3)
+    tex.paste(walnut, (0, 0))
+    m.write("wall_classic", [mat("maple", None, rough=0.5, tex=0)], [tex])
+
+
 def build_stand(name, color, rough):
     """The book-stand under the tipped board (design coordinates.board): two 2 cm side plates in the y-z plane, 3 cm in
     from each side, filling the triangle under the board's bottom face. Scene (volume) coordinates, not tipped."""
@@ -432,5 +446,6 @@ if __name__ == "__main__":
         P = SKINS[skin]
         build_board("board_" + skin)
     build_wall_modern()
+    build_wall_classic()
     build_stand("stand_modern", (0xE2, 0xD3, 0xB8), 0.6)
     build_stand("stand_classic", (0x4A, 0x32, 0x22), 0.62)

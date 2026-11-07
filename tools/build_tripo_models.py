@@ -4,8 +4,7 @@ venv (trimesh):  ~/.factory-venv/bin/python tools/build_tripo_models.py [~/Downl
   pawn_modern_you / pawn_modern_ai   modern-pawn-B-3000 -> dia 3.2 x 2.4 cm, welded + smooth normals, solid matte coral #FF6B57 / navy #1E3A68
   pawn_classic_you                   pawn-A-ivory-3000  -> dia 3.2 x 2.4 cm with its ivory + brass texture
   pawn_classic_ai                    same mesh, solid deep cinnabar lacquer #5A1712 (no texture: ivory x red renders brown)
-  wall_classic                       wall-B-maple-walnut-6000 -> long axis to X, 9.6 x 1.2 x 0.6 cm; thickness pressed flat
-                                     into a straight board with box normals (design lod note: the raw grooves turn to specks)
+  (wall_classic is procedural in tools/build_models.py: the pressed-flat Tripo wall-B rendered a flat grey face)
 Origins: pawns at the bottom centre, wall at its centre. All OPAQUE.
 """
 import os, sys
@@ -46,6 +45,17 @@ def solid(g, rgb, rough):
     return g
 
 
+def brighten(g, gain, gamma=1.0):
+    """Lift a texture so the rendered part keeps its design contrast against the board (skins.check: measured on pixels)."""
+    from PIL import Image
+    m = g.visual.material
+    im = m.baseColorTexture.convert("RGB")
+    a = np.asarray(im).astype(float) / 255.0
+    a = np.clip((a ** gamma) * gain, 0, 1)
+    m.baseColorTexture = Image.fromarray((a * 255).astype("uint8"))
+    return g
+
+
 def export(g, name):
     if hasattr(g.visual, "material"):
         m = g.visual.material
@@ -80,6 +90,7 @@ if __name__ == "__main__":
     export(solid(mp, (0xFF, 0x6B, 0x57), 0.55), "pawn_modern_you")
     export(solid(mp, (0x1E, 0x3A, 0x68), 0.55), "pawn_modern_ai")
     cp = fit_pawn(load("pawn-A-ivory-3000.glb"))
-    export(cp, "pawn_classic_you")
+    # v0.1.1 render check: the raw ivory texture rendered at L* 64 against jade cells 35 -> lifted
+    export(brighten(cp.copy(), 1.25, 0.8), "pawn_classic_you")
     export(solid(cp, (0x5A, 0x17, 0x12), 0.35), "pawn_classic_ai")
-    export(wall_classic(), "wall_classic")
+    # wall_classic: tools/build_models.py (the flattened Tripo wall-B lost its front-face UVs and rendered flat grey)

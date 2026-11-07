@@ -124,7 +124,7 @@ internal class SceneResources private constructor() {
                 async(io) { r.bandYou = mapOf(Skin.MODERN to unlit(Color(0xFFFF6B57), 0.85f).keep(), Skin.CLASSIC to unlit(Color(0xFFF2C14E), 0.85f).keep()) },
                 async(io) { r.bandAi = mapOf(Skin.MODERN to unlit(Color(0xFF1E3A68), 0.85f).keep(), Skin.CLASSIC to unlit(Color(0xFF4FA3E0), 0.85f).keep()) },
                 // GazeTargets: a visible, opaque plate one shade darker than the cells carries the system hover highlight
-                async(io) { r.gaze = mapOf(Skin.MODERN to pbr(Color(0xFFC9D6CF), 0.75f).keep(), Skin.CLASSIC to pbr(Color(0xFF356A63), 0.4f).keep()) },
+                async(io) { r.gaze = mapOf(Skin.MODERN to pbr(Color(0xFFC9D6CF), 0.75f).keep(), Skin.CLASSIC to pbr(Color(0xFF437F76), 0.4f).keep()) },
                 async(io) { r.ghostOk = unlit(Color(0xFFF5EBD2), 0.45f).keep() },
                 async(io) { r.ghostBad = unlit(Color(0xFFC8463A), 0.5f).keep() },
                 async(io) { r.ghostOff = unlit(Color(0xFF9A9A9A), 0.35f).keep() },
