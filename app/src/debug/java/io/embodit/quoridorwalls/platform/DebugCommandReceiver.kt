@@ -18,6 +18,12 @@ import io.embodit.quoridorwalls.ui.Page
 import io.embodit.quoridorwalls.ui.Ui
 import io.embodit.quoridorwalls.ui.board.SceneHolder
 import io.embodit.quoridorwalls.ui.board.route
+import io.embodit.quoridorwalls.ui.board.BoardNames
+import io.embodit.quoridorwalls.ui.board.BoardTargets
+import io.embodit.quoridorwalls.ui.board.input.BoardInputLog
+import io.embodit.quoridorwalls.ui.board.input.InputSource
+import io.embodit.quoridorwalls.ui.board.input.resolveUp
+import io.embodit.quoridorwalls.domain.Skin
 
 /**
  * Debug builds only. Every command goes through the same GameFlow calls the volume and the window use (D29).
@@ -68,10 +74,31 @@ class DebugCommandReceiver : BroadcastReceiver() {
                 "S11" -> Ui.page = Page.SETTINGS
                 "S12" -> Ui.page = Page.RULES
                 "S13" -> { Ui.page = Page.PLAY; flow.requestConfirm(ConfirmKind.RESIGN) }
+                // design occlusionRule.qa: 10 walls across between rows 4 and 5 (the row-5 centres behind them must show)
+                "WALLS10" -> { game(); setup("you=e3 ai=e8 walls=a4h0.c4h0.e4h0.g4h0.b6h1.d6h1.f6h1.h6h1.a8h1.c8h1 left=6,6 side=0") }
                 "S16" -> { Log.i(TAG, "restore=${flow.continueSaved()}"); Ui.page = Page.PLAY }
                 else -> Log.w(TAG, "unknown state $a")
             }
-            "tap" -> route(graph, Q.parseCell(a)?.let { "sq:$it" } ?: a)
+            "tap" -> route(graph, BoardTargets.resolveName(Q.parseCell(a)?.let { BoardNames.square(it) } ?: a, flow.state.value.pos.left[Q.YOU]))
+            // board-input 命中回放: take the real scene entities (gaze plate, cell holder, the pawn's deepest model mesh, the
+            // next rail wall's mesh), resolve them up the parent chain like a real hit and hand the deepest to the listener
+            "replay" -> {
+                val f = a.split(" ").filter { it.isNotBlank() }
+                val what = f.getOrNull(0)?.let { w -> Q.parseCell(w)?.let { BoardNames.square(it) } ?: w } ?: "sq:13"
+                val src = InputSource.entries.firstOrNull { it.label == f.getOrNull(1) } ?: InputSource.HAND_RAY
+                val scene = SceneHolder.scene; val resolver = SceneHolder.resolver; val listener = SceneHolder.listener
+                if (scene == null || resolver == null || listener == null) Log.w(TAG, "REPLAY no scene yet")
+                else {
+                    val ents = scene.replayEntities(what)
+                    ents.forEachIndexed { i, e ->
+                        val (target, path) = resolveUp(e, resolver)
+                        val cell = BoardTargets.cellFor(target) { flow.state.value.pos.pawns[it] }
+                        BoardInputLog.write(TAG, "REPLAY src=${src.label} path=$path -> target=$target -> square=${if (cell >= 0) Q.name(cell) else "-"}${if (i == 0) " (delivered)" else ""}")
+                    }
+                    ents.firstOrNull()?.let { listener.onTap(resolveUp(it, resolver).first, src, null) }
+                }
+            }
+            "skin" -> settings { it.copy(skin = if (a == "classic") Skin.CLASSIC else Skin.MODERN) }
             "move" -> Q.parseCell(a)?.let { flow.tapCell(it) }
             "pick" -> flow.pickWall()
             "hover" -> flow.holdOver(Q.parseWall(a))
@@ -109,7 +136,7 @@ class DebugCommandReceiver : BroadcastReceiver() {
             "welcome" -> flow.welcomeDone()
             "reopen" -> graph.window.reopen()
             "closepanel" -> graph.window.closeControlOnly()
-            "hover-cell" -> SceneHolder.scene?.setHover(Q.parseCell(a)?.let { "sq:$it" }, sticky = true)
+            "hover-cell" -> SceneHolder.scene?.setHover(Q.parseCell(a)?.let { BoardNames.square(it) } ?: a.ifBlank { null }, sticky = true)
             "dump", "state" -> Log.i(TAG, "DUMP ${flow.dump()} page=${Ui.page} window=${graph.window.panelState}")
             "evidence" -> Log.i(TAG, "EVIDENCE ${SceneHolder.scene?.evidence() ?: "no scene"}")
             else -> Log.w(TAG, "unknown debug command: $cmd")

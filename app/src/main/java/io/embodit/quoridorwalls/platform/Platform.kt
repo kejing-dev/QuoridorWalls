@@ -88,7 +88,9 @@ class SoundPlayer(context: Context) {
     private val random = Random(11)
     private val lastRate = HashMap<Sound, Float>()
     private val lastVariant = HashMap<Sound, Int>()
-    private val varied = setOf(Sound.SELECT, Sound.PLACE, Sound.JUMP, Sound.GRAB, Sound.WALL, Sound.BOUNCE)
+    private val varied = setOf(Sound.PLACE, Sound.JUMP, Sound.GRAB, Sound.WALL, Sound.BOUNCE)
+    /** D51 补: one instance per event at a time; a new one stops the previous (no stacking, no clipping on fast repeats). */
+    private val lastStream = HashMap<Sound, Int>()
 
     init {
         pool.setOnLoadCompleteListener { _, id, status -> if (status == 0) synchronized(loaded) { loaded += id } }
@@ -98,7 +100,7 @@ class SoundPlayer(context: Context) {
             for (name in listOf("$base.wav", "${base}_2.wav", "${base}_3.wav", "${base}_4.wav")) {
                 runCatching { context.assets.openFd("sounds/$name").use { fd -> found += pool.load(fd, 1) } }
             }
-            if (found.isNotEmpty()) ids[s] = found else Log.w(TAG, "no sound for $s")
+            if (found.isNotEmpty()) ids[s] = found else if (s != Sound.SELECT) Log.w(TAG, "no sound for $s")
         }
     }
 
@@ -119,7 +121,13 @@ class SoundPlayer(context: Context) {
         }
         val id = variants[v]
         if (synchronized(loaded) { id !in loaded }) return
-        pool.play(id, vol, vol, 1, 0, rate)
+        // the band swish sits ~6 dB under the knocks; win / lose are quieter UI cues
+        val gain = when (s) { Sound.WIN, Sound.LOSE, Sound.ILLEGAL -> 0.8f; else -> 1f }
+        synchronized(lastStream) {
+            lastStream[s]?.let { pool.stop(it) }
+            val stream = pool.play(id, vol * gain, vol * gain, 1, 0, rate)
+            if (stream != 0) lastStream[s] = stream
+        }
     }
 
     fun release() = runCatching { pool.release() }

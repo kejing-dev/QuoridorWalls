@@ -170,25 +170,30 @@ class GameFlow(
 
     // ------------------------------------------------------------------ lifecycle
 
-    /** S00 exits: first run -> a default easy game (you first) + the rules page (S01); a save -> S16; otherwise S02. */
+    /**
+     * S00 exits (design q1-2): an unfinished saved game always comes back (S16), whatever firstRunDone says; otherwise the
+     * first run opens a default easy game (you first) with the rules page (S01); otherwise S02.
+     */
     fun start() {
         val saved = store.load()
+        if (saved != null && saved.now.pos.winner() == null) { restore(saved); return }
         if (!settings().firstRunDone) {
             newGame(GameConfig(Engine.EASY, Q.YOU))
             set(s.copy(welcome = true))
             log("STATE S01 (default game, rules page open)")
             return
         }
-        if (saved != null && saved.now.pos.winner() == null) restore(saved)
-        else { set(PlayState(phase = Phase.SETUP)); log("STATE S02") }
+        set(PlayState(phase = Phase.SETUP)); log("STATE S02")
+    }
+
+    /** The welcome is over: [开始下棋] or the first move you make (design q1-2: "走过第一步或点开始即算看过引导"). */
+    private fun firstRunSeen(why: String) {
+        if (!settings().firstRunDone) { onSettings(settings().copy(firstRunDone = true)); log("FIRSTRUN done ($why)") }
+        if (s.welcome) set(s.copy(welcome = false))
     }
 
     /** [开始下棋] on the rules page: the welcome is over (the easy game is already set up). */
-    fun welcomeDone() {
-        if (s.welcome || !settings().firstRunDone) onSettings(settings().copy(firstRunDone = true))
-        if (s.welcome) set(s.copy(welcome = false))
-        log("WELCOME done")
-    }
+    fun welcomeDone() { firstRunSeen("start button"); log("WELCOME done") }
 
     fun continueSaved(): Boolean {
         val saved = store.load() ?: return false
@@ -318,8 +323,7 @@ class GameFlow(
     }
 
     private fun select() {
-        set(s.copy(phase = Phase.SELECTED, alert = null))
-        onSound(Sound.SELECT)
+        set(s.copy(phase = Phase.SELECTED, alert = null))   // D51 补: selecting is silent
         log("SELECT ${Q.name(s.pos.pawns[s.side])} steps=${s.steps.joinToString(",")} S04")
     }
 
@@ -492,7 +496,9 @@ class GameFlow(
     }
 
     /** Commit first, animate second (Cloud Air rule): the new position is saved before anything moves. */
-    private fun startAnim(st: PlayState, after: Pos, anim: Anim, stats: Stats, last: LastMove) {
+    private fun startAnim(st0: PlayState, after: Pos, anim: Anim, stats: Stats, last: LastMove) {
+        if (anim.side == Q.YOU) firstRunSeen("first move")
+        val st = if (anim.side == Q.YOU) s else st0
         val turnsYou = if (anim.side == Q.YOU) st.turnsYou + 1 else st.turnsYou
         set(st.copy(phase = Phase.ANIM, pos = after, anim = anim, hold = null, alert = null, hint = null, stats = stats, last = last,
             turnsYou = turnsYou, restored = false, back = null))

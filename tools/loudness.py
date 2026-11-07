@@ -37,13 +37,13 @@ def voiced(x, sr, thr=10 ** (-40 / 20), gap=0.04):
 def main(out):
     rnd = random.Random(5)
     seq = []
-    turn = ["select", "place", "place", "grab", "wall", "band", "place"]
-    order = turn * 4 + ["select", "jump"] + turn + ["grab", "illegal", "bounce"] + turn * 2 + ["select", "place", "win"]
+    turn = ["place", "place", "grab", "wall", "band", "place"]
+    order = turn * 4 + ["jump"] + turn + ["grab", "illegal", "bounce"] + turn * 2 + ["place", "win"]
     sr = 22050
     for name in order:
         variants = [n for n in (name, name + "_2", name + "_3") if os.path.exists(os.path.join(SND, n + ".wav"))]
         sr, x = load(rnd.choice(variants))
-        if name in ("select", "place", "jump", "grab", "wall", "bounce"):
+        if name in ("place", "jump", "grab", "wall", "bounce"):
             x = rate(x, 0.95 + rnd.random() * 0.10)
         seq += voiced(x, sr)
     with wave.open(out, "wb") as w:

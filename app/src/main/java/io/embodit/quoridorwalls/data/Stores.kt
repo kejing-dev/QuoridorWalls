@@ -9,6 +9,7 @@ import io.embodit.quoridorwalls.domain.Language
 import io.embodit.quoridorwalls.domain.SaveCodec
 import io.embodit.quoridorwalls.domain.SavedGame
 import io.embodit.quoridorwalls.domain.Settings
+import io.embodit.quoridorwalls.domain.Skin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -60,6 +61,7 @@ class SettingsStore(context: Context) {
             .putInt("volume", s.volume)
             .putBoolean("reducedMotion", s.reducedMotion)
             .putBoolean("firstRunDone", s.firstRunDone)
+            .putString("skin", s.skin.name)
             .putBoolean("coachDone", s.coachDone)
             .putInt("setupLevel", s.lastSetup.level)
             .putString("setupFirst", s.lastSetup.first.name)
@@ -73,6 +75,7 @@ class SettingsStore(context: Context) {
             volume = prefs.getInt("volume", 2).coerceIn(0, 2),
             reducedMotion = prefs.getBoolean("reducedMotion", false),
             firstRunDone = prefs.getBoolean("firstRunDone", false),
+            skin = runCatching { Skin.valueOf(prefs.getString("skin", Skin.MODERN.name)!!) }.getOrDefault(Skin.MODERN),
             coachDone = prefs.getBoolean("coachDone", false),
             lastSetup = GameSetup(
                 level = prefs.getInt("setupLevel", 1).coerceIn(1, 3),

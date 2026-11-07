@@ -126,4 +126,7 @@
     <string name="settings_exit">退出应用</string>
     <string name="alert_no_undo">现在没有能悔的一步。</string>
     <string name="orient_wait_line">先拿起一块墙，再翻横竖。</string>
+    <string name="settings_skin">皮肤</string>
+    <string name="skin_modern">现代简约</string>
+    <string name="skin_classic">古典</string>
 </resources>

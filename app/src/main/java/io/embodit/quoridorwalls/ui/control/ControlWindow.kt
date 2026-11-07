@@ -66,6 +66,7 @@ import io.embodit.quoridorwalls.domain.Phase
 import io.embodit.quoridorwalls.domain.PlayState
 import io.embodit.quoridorwalls.domain.Q
 import io.embodit.quoridorwalls.domain.Settings
+import io.embodit.quoridorwalls.domain.Skin
 import io.embodit.quoridorwalls.domain.WallFail
 import io.embodit.quoridorwalls.platform.Graph
 import io.embodit.quoridorwalls.platform.TAG
@@ -120,18 +121,20 @@ fun ControlWindow() {
         }
     }
 
+    // tabbar-lang: the TabBar is its own system window; take the labels in the app's language here, outside it
+    val tabs = listOf(
+        Triple(Page.PLAY, R.drawable.ic_tab_play, stringResource(R.string.tab_play)),
+        Triple(Page.NEW, R.drawable.ic_tab_new, stringResource(R.string.tab_new)),
+        Triple(Page.RULES, R.drawable.ic_tab_rules, stringResource(R.string.tab_rules)),
+        Triple(Page.SETTINGS, R.drawable.ic_tab_settings, stringResource(R.string.tab_settings)),
+    )
     TabBar(followViewpoints = setOf(ViewPoint.Front, ViewPoint.Left)) {
-        listOf(
-            Triple(Page.PLAY, R.drawable.ic_tab_play, R.string.tab_play),
-            Triple(Page.NEW, R.drawable.ic_tab_new, R.string.tab_new),
-            Triple(Page.RULES, R.drawable.ic_tab_rules, R.string.tab_rules),
-            Triple(Page.SETTINGS, R.drawable.ic_tab_settings, R.string.tab_settings),
-        ).forEach { (page, icon, label) ->
+        tabs.forEach { (page, icon, label) ->
             item(
                 selected = Ui.page == page,
                 onClick = { Ui.page = page },
-                mainContent = { Icon(painter = painterResource(icon), contentDescription = stringResource(label)) },
-                supportContent = { Txt(stringResource(label), "tabbar/${page.name}", style = PicoTheme.typography.labelMedium) },
+                mainContent = { Icon(painter = painterResource(icon), contentDescription = label) },
+                supportContent = { Txt(label, "tabbar/${page.name}", style = PicoTheme.typography.labelMedium) },
             )
         }
     }
@@ -498,11 +501,13 @@ private fun SettingsPage(settings: Settings, graph: Graph) {
             Spacer(Modifier.width(12.dp))
             SecondaryButton(stringResource(R.string.settings_reopen), "settings/reopen", onClick = { graph.window.reopen() }, modifier = Modifier.weight(1f))
         }
+        OptionRow(stringResource(R.string.settings_skin), "settings/skin", labelWidth = 104.dp) {
+            Segments(listOf(Skin.MODERN to stringResource(R.string.skin_modern), Skin.CLASSIC to stringResource(R.string.skin_classic)), settings.skin, "settings/skin", { v -> upd { it.copy(skin = v) } }, Modifier.weight(1f))
+        }
         Row(Modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically) {
             Txt(stringResource(R.string.settings_about_label), "settings/about-label", style = PicoTheme.typography.labelLarge, modifier = Modifier.width(104.dp))
             Txt(stringResource(R.string.settings_about_text, BuildConfig.VERSION_NAME), "settings/about", style = PicoTheme.typography.bodySmall, color = QColors.InkSecondary, maxLines = 2, modifier = Modifier.weight(1f))
         }
-        Txt(stringResource(R.string.settings_reopen_hint), "settings/reopen-hint", style = PicoTheme.typography.bodySmall, color = QColors.InkSecondary)
         // D26: quit is the last row; the confirmation is a whole-page card.
         SecondaryButton(stringResource(R.string.settings_exit), "settings/exit", onClick = { Ui.exitConfirm = true; Log.i(TAG, "CONFIRM EXIT S13") }, icon = R.drawable.ic_exit, modifier = Modifier.fillMaxWidth(), danger = true)
     }

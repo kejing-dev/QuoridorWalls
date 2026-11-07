@@ -11,7 +11,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import com.pico.spatial.core.ecs.CollisionComponent
 import com.pico.spatial.core.ecs.Entity
+import com.pico.spatial.core.ecs.HoverEffectComponent
+import com.pico.spatial.core.ecs.InteractableComponent
+import com.pico.spatial.core.ecs.ModelEntity
+import com.pico.spatial.core.ecs.TransformComponent
+import com.pico.spatial.core.ecs.resource.Material
+import com.pico.spatial.core.ecs.resource.MeshResource
+import com.pico.spatial.core.ecs.resource.PhysicsMaterialResource
+import com.pico.spatial.core.ecs.resource.ShapeResource
+import com.pico.spatial.core.math.Vector3
 import com.pico.spatial.ui.foundation.gesture.TargetEntity
 import com.pico.spatial.ui.foundation.gesture.data.InteractionKind
 import com.pico.spatial.ui.foundation.gesture.detectSpatialDragGesture
@@ -45,6 +55,15 @@ enum class InputSource(val label: String) {
 /** Maps a hit entity (or one of its ancestors) to the app's own target (a square, a piece …). null = not ours. */
 fun interface TargetResolver<T : Any> {
     fun resolve(entity: Entity): T?
+
+    companion object {
+        /**
+         * A resolver that only looks at entity names. Prefer it: name every hit holder after its target ("sq:A1",
+         * "pc:0:5" …) and the same [byName] can be replayed in a JVM unit test with [resolvePath] (build.md 命中回放).
+         */
+        fun <T : Any> byName(byName: (String) -> T?): TargetResolver<T> =
+            TargetResolver { e -> runCatching { e.getName() }.getOrNull()?.let(byName) }
+    }
 }
 
 /** What the app does with resolved input. All calls arrive on the main thread. */
@@ -117,6 +136,15 @@ private class TapGuard { @Volatile var lastTapMs = 0L }
 /** Last hovered target, so hover changes are logged once. */
 private class HoverState { var last: Any? = null }
 
+/**
+ * Pure twin of [resolveUp] for unit tests and log replay: [chain] is the hit entity's name first, then its parents,
+ * exactly as the `path=a < b < c` field of a TAP / DRAG log line. Every app must test name -> target -> square with it.
+ */
+fun <T : Any> resolvePath(chain: List<String>, resolveName: (String) -> T?): T? = chain.firstNotNullOfOrNull(resolveName)
+
+/** Splits a logged `path=` value back into the name chain for [resolvePath]. */
+fun parseLoggedPath(path: String): List<String> = path.split(" < ").map { it.trim() }.filter { it.isNotEmpty() }
+
 /** Walks from [entity] up its parents until [resolver] recognises one. */
 fun <T : Any> resolveUp(entity: Entity?, resolver: TargetResolver<T>, maxDepth: Int = 10): Pair<T?, String> {
     var e = entity
@@ -185,7 +213,7 @@ fun <T : Any> Modifier.boardInput(
             detectSpatialTapGesture(context = context, targetedToEntity = TargetEntity.any()) { tap ->
                 val src = InputSource.of(tap.interactionKind)
                 val (hit, path) = resolveUp(tap.targetEntity, currentResolver, config.maxResolveDepth)
-                log("TAP src=${src.label} hit=$hit path=$path pos=(${"%.0f".format(tap.position.x)}, ${"%.0f".format(tap.position.y)}, ${"%.0f".format(tap.position.z)})")
+                log("TAP src=${src.label} kind=${tap.interactionKind} hit=$hit path=$path pos=(${"%.0f".format(tap.position.x)}, ${"%.0f".format(tap.position.y)}, ${"%.0f".format(tap.position.z)})")
                 guard.lastTapMs = SystemClock.uptimeMillis()
                 currentListener.onTap(hit, src, tap.position)
             }
@@ -236,4 +264,95 @@ fun <T : Any> Modifier.boardInput(
                 if (dragging) currentListener.onDragMove(d)
             }
         }
+}
+
+
+/**
+ * GazeTargets — template README「通用模式：可见落点标记承载系统高亮」(2026-11-06, first used by royal-ur v0.1.4).
+ *
+ * The system never hands the gaze point to the app, and its HoverEffect is drawn only on visible, opaque meshes under
+ * the hit collider. So every pickable thing is a HOLDER entity carrying Collision + Interactable + system HoverEffect,
+ * with the visible mesh it should light up as its child (or its own GLB meshes):
+ *  - cells: [cells] makes one holder per cell (full-cell click shape, so the click area does not shrink) with a small
+ *    visible marker child — a 70 % rounded plate by default, or a rounded frame ([Style.frameBand]) when the cell has
+ *    artwork the plate would hide; [Style.thick] proud of the cell top, a shade darker than the board;
+ *  - pieces / towers / cups: [install] on the node that holds their meshes (the GLB clone root), never on an empty
+ *    collider child — a hit on a child with no mesh shows no highlight;
+ *  - the board body gets NO Interactable (and no collider above the markers), so rays and gaze land on a marker first.
+ * Name every holder after its target and resolve with TargetResolver.byName; replay hits in a unit test with resolvePath.
+ *
+ * One line per app:
+ *   val parts = GazeTargets.markerMeshes(cellM = 0.056f, style)            // once, with your resources (keep / close them)
+ *   GazeTargets.cells(boardRoot, squares.associate { "sq:${it.name}" to topOf(it) }, cellShape, physics, parts, markerMat)
+ *   GazeTargets.install(pieceRoot, pieceShape, physics)                    // pieces, towers, cups
+ */
+object GazeTargets {
+    data class Style(
+        /** Marker outer size as a fraction of the cell (README: 70 %). */
+        val fraction: Float = 0.70f,
+        /** Marker thickness = how far it stands proud of the cell top (README: 1–2 mm). */
+        val thick: Float = 0.0015f,
+        val corner: Float = 0.004f,
+        /** 0 = a solid rounded plate; > 0 = a rounded frame with this band width (cells with artwork). */
+        val frameBand: Float = 0f,
+    )
+
+    /** One marker mesh and where it sits on the holder (holder origin = the cell's top surface centre). */
+    class Part(val mesh: MeshResource, val offset: Vector3)
+
+    /** The marker meshes for a square cell of [cellM] metres. Create once, off the main thread (resource creation waits on the renderer); the caller owns (keeps / closes) them. */
+    fun markerMeshes(cellM: Float, style: Style = Style()): List<Part> {
+        val size = cellM * style.fraction
+        val y = style.thick / 2f
+        // gate:allow geometry gaze-target marker plate: abstract drop-point marker the system hover draws on (README 通用模式)
+        if (style.frameBand <= 0f) return listOf(Part(MeshResource.createBox(Vector3(size, style.thick, size), cornerRadius = style.corner), Vector3(0f, y, 0f)))
+        val b = style.frameBand
+        val c = minOf(style.corner, b / 2f)
+        // gate:allow geometry gaze-target marker frame (long bars): abstract drop-point marker for cells with artwork
+        val long = MeshResource.createBox(Vector3(size, style.thick, b), cornerRadius = c)
+        // gate:allow geometry gaze-target marker frame (short bars): abstract drop-point marker for cells with artwork
+        val short = MeshResource.createBox(Vector3(b, style.thick, size - 2 * b), cornerRadius = c)
+        val o = (size - b) / 2f
+        return listOf(
+            Part(long, Vector3(0f, y, -o)), Part(long, Vector3(0f, y, o)),
+            Part(short, Vector3(-o, y, 0f)), Part(short, Vector3(o, y, 0f)),
+        )
+    }
+
+    /**
+     * Makes [holder] pickable and highlightable: [shape] is the click area (centred on [holder]); [marker] (optional) is
+     * the visible child the system highlight is drawn on. Same signature as kings-row's project copy.
+     */
+    fun install(holder: Entity, shape: ShapeResource, physics: PhysicsMaterialResource, marker: Entity? = null): Entity {
+        holder.components.set(CollisionComponent(collisionShape = listOf(shape), physicsMaterial = physics))
+        holder.components.set(InteractableComponent())
+        holder.components.set(HoverEffectComponent())
+        marker?.let { holder.addChild(it) }
+        return holder
+    }
+
+    /**
+     * One holder per cell under [parent]: named by the map key, placed at the map value (the cell's top surface centre,
+     * in [parent]'s space), with [shape] as the click area and the [parts] marker meshes (children "mk:<key>:<i>").
+     */
+    fun cells(
+        parent: Entity,
+        cells: Map<String, Vector3>,
+        shape: ShapeResource,
+        physics: PhysicsMaterialResource,
+        parts: List<Part>,
+        material: Material,
+    ): Map<String, Entity> = cells.mapValues { (name, at) ->
+        val holder = Entity().apply { setName(name) }
+        holder.components[TransformComponent::class.java]!!.setPosition(at)
+        install(holder, shape, physics)
+        parts.forEachIndexed { i, p ->
+            holder.addChild(ModelEntity(p.mesh, material).apply {
+                setName("mk:$name:$i")
+                components[TransformComponent::class.java]!!.setPosition(p.offset)
+            })
+        }
+        parent.addChild(holder)
+        holder
+    }
 }

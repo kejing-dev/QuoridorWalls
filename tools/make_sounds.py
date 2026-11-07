@@ -170,25 +170,9 @@ if '--check' in sys.argv:
 # The physical sounds (select, place, jump, grab, wall, bounce) are CC0 recordings (tools/import_cc0_sounds.py, Kenney);
 # this script only makes the UI cues below.
 
-bell = ((1, 1.0), (2.0, 0.18), (3.0, 0.05), (4.2, 0.03))
-
-# illegal: a short muted "噔"
-write('illegal', lowpass(0.9 * mode(420, 0.025, 0.12) + 0.3 * mode(860, 0.012, 0.12), 1800, 1), -2)
 
 # band: the path bands re-route, a soft airy swish (design: about -20 dBFS, quieter than the knocks)
 write('band', lowpass(swish(0.28, 900, 2200, random.Random(4), attack=0.08), 2600, 1), -14, drive=0)
-
-# win: four notes rising, a light brass-bell colour
-x = silence(1.4)
-for at, f, d in ((0.0, 523.25, 0.25), (0.14, 659.25, 0.25), (0.28, 783.99, 0.25), (0.42, 1046.5, 0.7)):
-    x = place(x, note(f, d + 0.3, d, partials=bell, attack=0.006), at)
-write('win', x, -1)
-
-# lose: two notes falling, a low wood colour (the opponent's win is not a fanfare, D44)
-x = silence(0.9)
-for at, f, d in ((0.0, 392.0, 0.3), (0.2, 293.66, 0.5)):
-    x = place(x, note(f, d + 0.3, d, partials=bell, attack=0.006), at)
-write('lose', x, -2)
 
 print('wrote', sorted(os.listdir(OUT)))
 check()

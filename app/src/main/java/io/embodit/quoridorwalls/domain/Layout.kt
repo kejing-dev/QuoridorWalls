@@ -40,16 +40,20 @@ data class Box3(val min: V3, val max: V3) {
 }
 
 /**
- * Every metre of the volume (design spatialLayout). Scene space = the design's volume space: origin at the volume centre,
- * +X right, +Y up, +Z toward the user; volume 0.56 x 0.36 x 0.62 (floor y -0.18, front face z +0.31).
+ * Every metre of the volume (design v0.1.7 spatialLayout, QA q1-1 geometry). Scene space = the design's volume space:
+ * origin at the volume centre, +X right, +Y up, +Z toward the user; volume 0.66 x 0.36 x 0.62 (floor y -0.18, front face
+ * z +0.31). The board content sits 5 cm left of the volume centre (contentRoot x -0.05) so the control window that the
+ * system places to the right moves away from the board.
  *
- * The board hangs from tiltRoot at its near-bottom edge (0, -0.18, +0.27), tipped 20° about X (far edge up). Board-local
+ * The board hangs from tiltRoot at its near-bottom edge (-0.05, -0.18, +0.27), tipped 34° about X (far edge up). Board-local
  * space: origin on that edge, +Y the board normal, -Z along the board toward the far edge, so a point on the top surface
- * at distance s from the near edge is local (x, BOARD_T, -s) (design boardRoot: near top edge (x, -0.1565, +0.2786)).
+ * at distance s from the near edge is local (x, BOARD_T, -s) (design: near top edge y -0.1593, z +0.2840).
  *
- *   rails   near rail s 0..0.04 (your 10 walls), far rail s 0.49..0.53 (the AI's 10), walls lying flat, 5 per layer, 2 layers
- *   grid    9 x 9 cells, pitch 5 cm (4.2 cm face + 0.8 cm groove), row r centre s = 0.04 + (r + 0.5) x 0.05, column x = (c - 4) x 0.05
- *   walls   9.6 x 0.6 x 2.4 cm, centred on crossing (c, r): x = (c - 3.5) x 0.05, s = 0.04 + (r + 1) x 0.05, sunk 2 mm
+ *   rails   near rail s 0..0.04 (your 10 walls), far rail s 0.49..0.53: walls lying flat (9.6 x 1.2 x 0.6), 2 rows x 5
+ *   grid    9 x 9 cells, pitch 5 cm, row r centre s = 0.04 + (r + 0.5) x 0.05, column x = (c - 4) x 0.05
+ *   walls   9.6 x 0.6 x 1.2 cm, centred on crossing (c, r), sunk 2 mm: 1.0 cm shows above the cells
+ *   pawns   squat turned pawn dia 3.2 x 2.4 cm; selection does not lift (a ring at its foot instead)
+ *   marks   every landing / hint / hover mark floats 1.2 cm above its cell on a thin light column
  */
 class Layout {
     companion object {
@@ -65,26 +69,26 @@ class Layout {
         const val CELL_TOP = BOARD_T + CELL_RAISE
         const val WALL_L = 0.096f
         const val WALL_T = 0.006f
-        const val WALL_H = 0.024f
-        /** A standing wall's bottom: 2 mm into the groove below the cell faces (its top is 2.2 cm above them). */
+        const val WALL_H = 0.012f
+        /** A standing wall's bottom: 2 mm into the groove below the cell faces (its top is 1.0 cm above them). */
         const val WALL_BASE = CELL_TOP - GROOVE_SINK
-        const val PAWN_D = 0.034f
-        const val PAWN_H = 0.045f
-        const val LIFT_SELECT = 0.008f
+        const val PAWN_D = 0.032f
+        const val PAWN_H = 0.024f
+        const val LIFT_SELECT = 0f
         const val LIFT_STEP = 0.03f
-        const val LIFT_JUMP = 0.05f
+        const val LIFT_JUMP = 0.04f
         const val LIFT_GOAL = 0.015f
-        /** A wall in hand floats with its bottom 2 cm above the board surface. */
+        /** Landing / hint / hover marks float this high above their cell (design markers: 1.2 cm, hard requirement). */
+        const val MARK_UP = 0.012f
+        /** A wall in hand floats with its bottom 2 cm above the board surface (only while the pointer is off the board). */
         const val HOLD_UP = 0.02f
-        const val TILT_DEG = 20f
-        val VOLUME = V3(0.56f, 0.36f, 0.62f)
-        val PIVOT = V3(0f, -0.18f, 0.27f)
-        /**
-         * Seat card (AttachmentPanel, design coordinates.seatCard 0.20 x 0.035 m) widened to 0.26 m so the English line
-         * "Your move · Walls you 10 / them 10" fits at the design's letter height (deviation, within tolerance).
-         */
+        const val TILT_DEG = 34f
+        const val CONTENT_X = -0.05f
+        val VOLUME = V3(0.66f, 0.36f, 0.62f)
+        val PIVOT = V3(CONTENT_X, -0.18f, 0.27f)
+        /** Seat card (AttachmentPanel, design coordinates.seatCard): 0.26 x 0.035 m standing on the floor at z +0.31, centred on the board. */
         val SEAT_SIZE = V3(0.26f, 0.035f, 0f)
-        val SEAT_CENTRE = V3(0f, -0.18f + 0.0175f, 0.31f)
+        val SEAT_CENTRE = V3(CONTENT_X, -0.18f + 0.0175f, 0.31f)
         /** Measured on the PICO 6 emulator (royal-ur v0.1.0, tag width against a model of known size at the same depth). */
         const val DP_M = 0.00069f
         val SEAT_W_DP = (SEAT_SIZE.x / DP_M).roundToInt()
@@ -95,6 +99,8 @@ class Layout {
         const val GRID_MARGIN = 0.012f
         /** Drag gain: pointer travel in metres -> travel of the wall in hand on the board. */
         const val DRAG_GAIN = 1.0f
+        /** Rail rows (s of the two rows of five lying walls, from the rail's own edge). */
+        val RAIL_ROWS = floatArrayOf(0.028f, 0.012f)
     }
 
     val theta: Float = Math.toRadians(TILT_DEG.toDouble()).toFloat()
@@ -119,17 +125,24 @@ class Layout {
     /** Local centre of a cell face. */
     fun cellTop(cell: Int, up: Float = 0f): V3 = V3(cellX(cell), CELL_TOP + up, -cellS(cell))
 
+    /** Where a floating mark of [cell] sits (design markers: 1.2 cm above the cell, on a light column). */
+    fun mark(cell: Int): V3 = cellTop(cell, MARK_UP)
+
     /** Local centre of a pawn standing on [cell], lifted by [lift]. */
     fun pawnCentre(cell: Int, lift: Float = 0f): V3 = cellTop(cell, PAWN_H / 2 + lift)
 
-    /** Local centre of a wall standing in its slot. */
+    /** Local centre of a wall standing in its slot ([sunk]) or floating above it in hand. */
     fun wallCentre(w: Wall, sunk: Boolean = true): V3 = V3(crossX(w.c), (if (sunk) WALL_BASE else CELL_TOP + HOLD_UP) + WALL_H / 2, -crossS(w.r))
 
-    /** Local centre of rail slot [k] (0..9) of [side]: lying flat, 5 per layer, the top layer is used first. */
+    /**
+     * Local centre of rail slot [k] (0..9) of [side]: lying flat (9.6 long, 1.2 wide along s, 0.6 high), two rows of five;
+     * slots 0..4 are the row nearer the board edge, 5..9 the row nearer the grid (taken first).
+     */
     fun railCentre(side: Int, k: Int): V3 {
-        val layer = k / 5; val i = k % 5
-        val s = if (side == Q.YOU) RAIL / 2 else BOARD_D - RAIL / 2
-        return V3((i - 2) * 0.098f, BOARD_T + WALL_T / 2 + layer * WALL_T, -s)
+        val row = if (k >= 5) 0 else 1
+        val i = k % 5
+        val s = if (side == Q.YOU) RAIL_ROWS[row] else BOARD_D - RAIL_ROWS[row]
+        return V3((i - 2) * 0.10f, BOARD_T + WALL_T / 2, -s)
     }
 
     /** A flight between two points at time fraction [t]: a parabola peaking [arc] above the chord (local up). */
@@ -157,7 +170,14 @@ class Layout {
     fun nearestCross(x: Float, s: Float): Pair<Int, Int> =
         ((x / PITCH + 3.5f).roundToInt().coerceIn(0, 7)) to (((s - 0.04f) / PITCH - 1f).roundToInt().coerceIn(0, 7))
 
-    // ------------------------------------------------------------------ occlusion (D35 / D20 / D41)
+    /** The book-stand under the board (design coordinates.board): two side plates, triangles in the y-z plane. */
+    fun standPlates(): List<Pair<Float, List<V3>>> {
+        val far = toScene(V3(0f, 0f, -BOARD_D))
+        val xs = listOf(CONTENT_X - BOARD_W / 2 + 0.03f, CONTENT_X + BOARD_W / 2 - 0.03f)
+        return xs.map { x -> x to listOf(V3(x, -0.18f, PIVOT.z - 0.01f), V3(x, -0.18f, far.z + 0.005f), V3(x, far.y - 0.006f, far.z + 0.005f)) }
+    }
+
+    // ------------------------------------------------------------------ occlusion (design occlusionRule, occlusion_check.py)
 
     /** An obstacle box: [local] = in board-local space (things on the tilted board), else scene space. */
     class Obstacle(val name: String, val box: Box3, val local: Boolean, val cylinder: Pair<V3, Float>? = null)
@@ -190,55 +210,69 @@ class Layout {
         return if (o.local) o.box.hitBySegment(toLocal(eye), toLocal(target)) else o.box.hitBySegment(eye, target)
     }
 
-    /** A pawn is a turned cylinder (radius PAWN_D / 2), not its bounding box: segment vs vertical (board-normal) cylinder. */
-    private fun cylinderHit(base: V3, height: Float, a: V3, b: V3): Boolean {
-        val r = PAWN_D / 2
-        if (!Box3(base - V3(r, 0f, r), base + V3(r, height, r)).hitBySegment(a, b)) return false
-        val n = 400
-        for (i in 0..n) {
-            val p = a.lerp(b, i / n.toFloat())
-            val dx = p.x - base.x; val dz = p.z - base.z
-            if (p.y >= base.y && p.y <= base.y + height && dx * dx + dz * dz < r * r) return true
+    /** A pawn is a turned cylinder (radius PAWN_D / 2) along the board normal: analytic segment vs cylinder (t in (0, 1)). */
+    fun cylinderHit(base: V3, height: Float, a: V3, b: V3, r: Float = PAWN_D / 2): Boolean {
+        val dx = b.x - a.x; val dz = b.z - a.z; val dy = b.y - a.y
+        val ox = a.x - base.x; val oz = a.z - base.z
+        val qa = dx * dx + dz * dz
+        val qb = 2 * (ox * dx + oz * dz)
+        val qc = ox * ox + oz * oz - r * r
+        var t0: Float; var t1: Float
+        if (qa < 1e-12f) { if (qc >= 0f) return false; t0 = 0f; t1 = 1f } else {
+            val disc = qb * qb - 4 * qa * qc
+            if (disc <= 0f) return false
+            val sq = kotlin.math.sqrt(disc)
+            t0 = (-qb - sq) / (2 * qa); t1 = (-qb + sq) / (2 * qa)
         }
-        return false
+        if (abs(dy) < 1e-9f) { if (a.y < base.y || a.y > base.y + height) return false } else {
+            val ta = (base.y - a.y) / dy; val tb = (base.y + height - a.y) / dy
+            t0 = maxOf(t0, minOf(ta, tb)); t1 = minOf(t1, maxOf(ta, tb))
+        }
+        t0 = maxOf(t0, 1e-6f); t1 = minOf(t1, 1f - 1e-6f)
+        return t1 > t0
     }
 
     /**
-     * Eyes (design occlusionCheck.eye, the volume standing on a desk): sit E1 (0, 0.32, 0.85), low sit E0 (0, 0.22, 0.85),
-     * stand E2 (0, 0.70, 0.85), each also 30° left / right at the same distance; plus the measured emulator reset (eye
-     * level with the volume centre, 1.2 / 1.9 m, azimuth 0 / ±30°; royal-ur QA q1-1).
+     * The 30 eyes of design occlusionRule: reset eyes (eye height 0 = level with the volume centre, or 1.9 tan 4° = 4° down)
+     * x {1.2, 1.9, 2.5} m x azimuth {0, ±30°}; walking in to 0.7 m (4° height) x {0, ±30°}; design eyes E0 / E1 / E2
+     * (0.40 / 0.50 / 0.88 m above the desk, 0.85 m out) x {front, 30° left, 30° right}.
      */
     fun eyes(): Map<String, V3> {
         val out = LinkedHashMap<String, V3>()
-        for ((n, y) in listOf("E0" to 0.22f, "E1" to 0.32f, "E2" to 0.70f)) {
-            out[n] = V3(0f, y, 0.85f)
-            out[n + "L"] = V3(-0.425f, y, 0.736f)
-            out[n + "R"] = V3(0.425f, y, 0.736f)
-        }
-        for (d in listOf(1.2f, 1.9f)) for (az in listOf(0, -30, 30)) {
+        val ye4 = (1.9 * kotlin.math.tan(Math.toRadians(4.0))).toFloat()
+        for ((ye, tag) in listOf(0f to "reset-level", ye4 to "reset-4deg")) for (d in listOf(1.2f, 1.9f, 2.5f)) for (az in listOf(0, -30, 30)) {
             val a = Math.toRadians(az.toDouble())
-            out["reset d=$d az=$az"] = V3((d * sin(a)).toFloat(), 0f, (d * cos(a)).toFloat())
+            out["$tag d$d az$az"] = V3((d * sin(a)).toFloat(), ye, (d * cos(a)).toFloat())
+        }
+        for (az in listOf(0, -30, 30)) {
+            val a = Math.toRadians(az.toDouble())
+            out["reset-4deg walk-in d0.7 az$az"] = V3((0.7 * sin(a)).toFloat(), ye4, (0.7 * cos(a)).toFloat())
+        }
+        for ((n, hh) in listOf("E0" to 0.40f, "E1" to 0.50f, "E2" to 0.88f)) {
+            val y = -0.18f + hh
+            out[n] = V3(0f, y, 0.85f); out[n + "L"] = V3(-0.425f, y, 0.736f); out[n + "R"] = V3(0.425f, y, 0.736f)
         }
         return out
     }
 
-    /** The control window's control area (design coordinates.controlWindow): [x0, x1] x [y0, y1] in the plane z = 0. */
+    /** The control window's control area (design: 0.45 x 0.35 m, 5 cm right of the volume, controls 32 dp in) in the plane z = 0. */
     data class WindowArea(val name: String, val x0: Float, val x1: Float, val y0: Float, val y1: Float) {
         fun corners() = listOf(V3(x0, y0, 0f), V3(x1, y0, 0f), V3(x1, y1, 0f), V3(x0, y1, 0f))
+        fun grid(n: Int = 5): List<V3> = (0 until n).flatMap { i -> (0 until n).map { j -> V3(x0 + (x1 - x0) * i / (n - 1), y0 + (y1 - y0) * j / (n - 1), 0f) } }
     }
 
-    /**
-     * Two control-window assumptions: the design's conservative 0.45 x 0.35 m at x +0.33..+0.78 (controls 32 dp in), and
-     * 520 x 400 dp at the measured 0.00069 m / dp with its left edge at the same x +0.33.
-     */
     fun windowAreas(): List<WindowArea> {
-        val inset = 32 * DP_M
+        val left = VOLUME.x / 2 + 0.05f
+        val inset = 0.026f
         val w = 520 * DP_M; val h = 400 * DP_M
         return listOf(
-            WindowArea("design 0.45x0.35", 0.356f, 0.754f, -0.149f, 0.149f),
-            WindowArea("520x400dp", 0.33f + inset, 0.33f + w - inset, -h / 2 + inset, h / 2 - inset),
+            WindowArea("design 0.45x0.35", left + inset, left + 0.45f - inset, -0.175f + inset, 0.175f - inset),
+            WindowArea("520x400dp", left + inset, left + w - inset, -h / 2 + inset, h / 2 - inset),
         )
     }
+
+    /** The whole window as an occluder of the board (D41 reverse check). */
+    fun windowBox(): Box3 = Box3(V3(VOLUME.x / 2 + 0.05f, -0.175f, -0.003f), V3(VOLUME.x / 2 + 0.50f, 0.175f, 0.003f))
 }
 
 /**

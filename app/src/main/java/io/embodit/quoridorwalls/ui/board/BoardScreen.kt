@@ -52,6 +52,8 @@ import io.embodit.quoridorwalls.domain.Layout
 import io.embodit.quoridorwalls.domain.Phase
 import io.embodit.quoridorwalls.domain.PlayState
 import io.embodit.quoridorwalls.domain.Q
+import io.embodit.quoridorwalls.domain.Skin
+import io.embodit.quoridorwalls.ui.board.input.BoardInputLog
 import io.embodit.quoridorwalls.domain.V3
 import io.embodit.quoridorwalls.platform.Graph
 import io.embodit.quoridorwalls.platform.TAG
@@ -80,6 +82,8 @@ class BoardFrameSystem : System() {
 internal object SceneHolder {
     @Volatile var scene: BoardScene? = null
     @Volatile var graph: Graph? = null
+    @Volatile var listener: BoardListener? = null
+    @Volatile var resolver: TargetResolver<BoardTarget>? = null
 }
 
 private const val SEAT = "seatCard"
@@ -135,7 +139,7 @@ fun BoardScreen() {
             .onSizeChanged { viewSize = it }
             // D50: the factory board-input template (taps, short drags reported as drags, hover, targets resolved up the
             // parent chain) for hand ray, controller ray and eye-hand alike. No other tap / drag detector on this view.
-            .boardInput(remember(scene) { BoardTargets(graph) }, remember(graph) { BoardListener(graph, scene) }, BoardInputConfig(logTag = TAG)),
+            .boardInput(remember(graph) { boardResolver(graph).also { SceneHolder.resolver = it } }, remember(graph) { BoardListener(graph, scene).also { SceneHolder.listener = it } }, BoardInputConfig(logTag = TAG)),
         attachments = {
             AttachmentPanel(SEAT) { TagRoot(graph) { st -> SeatCard(st, graph) } }
         },
@@ -152,8 +156,12 @@ fun BoardScreen() {
             quick?.let { (s, m) -> scene.showFallback(s, m) }
             val t0 = android.os.SystemClock.elapsedRealtime()
             suspend fun load(n: String): Entity = Entity.loadSuspend("asset://models/$n.glb").also { it.enabled = false; content.addEntity(it) }
-            val models = runCatching { Models(load("board"), load("wall"), load("pawn_you"), load("pawn_ai")) }
-                .onFailure { Log.e(TAG, "MODELS failed", it) }.getOrNull()
+            val models = runCatching {
+                Models(Skin.entries.associateWith { s ->
+                    val k = s.name.lowercase()
+                    SkinModels(load("board_$k"), load("stand_$k"), load("wall_$k"), load("pawn_${k}_you"), load("pawn_${k}_ai"))
+                })
+            }.onFailure { Log.e(TAG, "MODELS failed", it) }.getOrNull()
             val resources = withContext(NonCancellable + Dispatchers.Default) { SceneResources.create() }
             Log.i(TAG, "MODELS loaded=${models != null} in ${android.os.SystemClock.elapsedRealtime() - t0} ms")
             val prefs = context.getSharedPreferences("debug", android.content.Context.MODE_PRIVATE)
@@ -172,27 +180,12 @@ fun BoardScreen() {
     )
 }
 
-/** Hit entity (or an ancestor) -> the target name the game knows: "sq:<cell>", "pawn:<side>", "rail", "ghost", "board". */
-internal class BoardTargets(private val graph: Graph) : TargetResolver<String> {
-    override fun resolve(entity: Entity): String? {
-        val name = runCatching { entity.getName() }.getOrNull() ?: return null
-        val f = name.split(":")
-        return when (f[0]) {
-            "sq", "rail", "ghost", "board" -> name.substringBefore(":hit")
-            "pawn" -> "pawn:${f.getOrNull(1)}"
-            // your walls still in the rail are the rail; placed walls and the far rail are just the board
-            "wall" -> {
-                val side = f.getOrNull(1)?.toIntOrNull(); val k = f.getOrNull(2)?.toIntOrNull()
-                if (side == Q.YOU && k != null && k < graph.flow.state.value.pos.left[Q.YOU]) "rail" else "board"
-            }
-            "boardModel" -> "board"
-            else -> null
-        }
-    }
-}
+/** Entity name -> target (pure [BoardTargets.resolveName]; the same function the JVM replay test runs). */
+internal fun boardResolver(graph: Graph): TargetResolver<BoardTarget> =
+    TargetResolver.byName { name -> BoardTargets.resolveName(name, graph.flow.state.value.pos.left[Q.YOU]) }
 
 /** Every resolved tap / drag goes through [route] and the hold calls (the same calls the window and the debug broadcast make). */
-internal class BoardListener(private val graph: Graph, private val scene: BoardScene) : BoardInputListener<String> {
+internal class BoardListener(private val graph: Graph, private val scene: BoardScene) : BoardInputListener<BoardTarget> {
     private var anchor: V3? = null
 
     /** S10: with the control window closed, the first pinch on the volume only reopens it and is used up. */
@@ -203,14 +196,15 @@ internal class BoardListener(private val graph: Graph, private val scene: BoardS
         return true
     }
 
-    override fun onTap(target: String?, source: InputSource, position: Offset3D?) {
-        Log.i(TAG, "PINCH target=$target src=${source.label}")
+    override fun onTap(target: BoardTarget?, source: InputSource, position: Offset3D?) {
+        val cell = BoardTargets.cellFor(target) { graph.flow.state.value.pos.pawns[it] }
+        BoardInputLog.write(TAG, "INPUT tap src=${source.label} target=$target -> square=${if (cell >= 0) Q.name(cell) else "-"}")
         if (consumedByClosedWindow()) return
         route(graph, target)
     }
 
-    override fun onDragStart(target: String, source: InputSource): Boolean {
-        if (target != "rail") return false
+    override fun onDragStart(target: BoardTarget, source: InputSource): Boolean {
+        if (target != BoardTarget.Rail) return false
         if (consumedByClosedWindow()) return false
         if (!graph.flow.pickWall()) return false
         anchor = graph.flow.holdPoint?.let { scene.toScene(it) }
@@ -229,18 +223,18 @@ internal class BoardListener(private val graph: Graph, private val scene: BoardS
 
     override fun onDragCancel() { anchor = null; graph.flow.cancelHold("drag cancel") }
 
-    override fun onHover(target: String?, source: InputSource) { scene.setHover(target) }
+    override fun onHover(target: BoardTarget?, source: InputSource) { scene.setHover(BoardTargets.nameOf(target)) }
 }
 
-/** Target name -> the one flow call (the same calls the debug broadcast makes). */
-internal fun route(graph: Graph, name: String?) {
+/** Target -> the one flow call (the same calls the debug broadcast makes). */
+internal fun route(graph: Graph, target: BoardTarget?) {
     val flow = graph.flow
-    when (val h = BoardScene.hitOf(name)) {
-        is BoardScene.Companion.CellHit -> flow.tapCell(h.cell)
-        is BoardScene.Companion.PawnHit -> flow.tapPawn(h.side)
-        BoardScene.Companion.RailHit -> flow.tapRail()
-        BoardScene.Companion.GhostHit -> flow.toggleOrient()
-        BoardScene.Companion.EmptyHit -> flow.tapEmpty()
+    when (target) {
+        is BoardTarget.Cell -> flow.tapCell(target.cell)
+        is BoardTarget.Pawn -> flow.tapPawn(target.side)
+        BoardTarget.Rail -> flow.tapRail()
+        BoardTarget.Ghost -> flow.toggleOrient()
+        null -> flow.tapEmpty()
     }
 }
 

@@ -269,4 +269,26 @@ class FlowTest {
         assertEquals(3, h.st.turnsYou)
         assertFalse(h.st.coachLit)
     }
+
+    /** design mustPass M9 (QA q1-2): fresh install, never press [开始下棋], play two moves from the tab, quit, cold start -> S16. */
+    @Test fun firstRunViaTabIsRestored() = runTest {
+        val store = MemStore()
+        var shared = Settings()
+        val h = Harness(this, store, settings = shared)
+        h.flow.start(); runCurrent()
+        assertTrue(h.st.welcome); assertFalse(h.settings.firstRunDone)
+        h.flow.tapCell(c("e2")); settle()
+        assertTrue("the first move counts as seeing the welcome", h.settings.firstRunDone)
+        assertFalse(h.st.welcome)
+        h.flow.tapCell(c("e3")); settle()
+        val pos = h.st.pos
+        h.flow.onBackground()            // quit / force-stop: the game is on disk
+        shared = h.settings
+        val h2 = Harness(this, store, settings = shared.copy(firstRunDone = false))   // even if the flag had not been saved
+        h2.flow.start(); runCurrent()
+        assertTrue(h2.st.restored)
+        assertFalse(h2.st.welcome)
+        assertEquals(pos, h2.st.pos)
+        assertEquals(c("e3"), h2.st.pos.pawns[Q.YOU])
+    }
 }

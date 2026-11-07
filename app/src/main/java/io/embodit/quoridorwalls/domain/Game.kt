@@ -4,6 +4,9 @@ enum class FirstPick { ME, THEM, RANDOM }
 
 enum class Language { SYSTEM, ZH, EN }
 
+/** design skins: modern (default; coral / navy pawns, mist-green board, charcoal walls) and classic (ivory / deep cinnabar, jade lacquer, maple). */
+enum class Skin { MODERN, CLASSIC }
+
 /** One game's setup with the first mover resolved. v1 is you (near, side 0) against the AI (A12; two players is v2). */
 data class GameConfig(val level: Int = Engine.EASY, val firstSide: Int = Q.YOU) {
     fun isHuman(side: Int): Boolean = side == Q.YOU
@@ -20,7 +23,9 @@ data class Settings(
     val sound: Boolean = true,
     val volume: Int = 2,
     val reducedMotion: Boolean = false,
+    /** Set by the first move you make or by [开始下棋] (design q1-2); a saved game is restored whatever it says. */
     val firstRunDone: Boolean = false,
+    val skin: Skin = Skin.MODERN,
     /** The guided first game (three lit moves + two coach lines) has been played. */
     val coachDone: Boolean = false,
     val lastSetup: GameSetup = GameSetup(),

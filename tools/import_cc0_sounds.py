@@ -17,7 +17,10 @@ RATE = 22050
 # event -> (max seconds, [pack/file, ...]); picked for short, light, clear sounds (no dull thuds): spectral centroid
 # 1.1-1.8 kHz for the wood knocks, 60-180 ms long (profile D51; numbers in apps/quoridor-walls/build/sound-sources.md)
 MAP = {
-    "select": (0.25, ["kenney_casino-audio/Audio/chips-handle-1.ogg", "kenney_casino-audio/Audio/chips-handle-3.ogg"]),
+    # UI cues are Kenney interface-sounds CC0 recordings too (design sound.list): no synthesis except the band swish
+    "illegal": (0.3, ["kenney_interface-sounds/Audio/error_004.ogg"]),
+    "win": (1.2, ["kenney_interface-sounds/Audio/confirmation_002.ogg"]),
+    "lose": (1.2, ["kenney_interface-sounds/Audio/back_002.ogg"]),
     "place": (0.2, ["kenney_impact-sounds/Audio/impactWood_light_000.ogg", "kenney_impact-sounds/Audio/impactWood_light_002.ogg", "kenney_impact-sounds/Audio/impactWood_light_003.ogg"]),
     "grab": (0.3, ["kenney_casino-audio/Audio/card-slide-1.ogg", "kenney_casino-audio/Audio/card-slide-5.ogg", "kenney_casino-audio/Audio/card-slide-6.ogg"]),
     "bounce": (0.25, ["kenney_impact-sounds/Audio/impactGeneric_light_001.ogg", "kenney_impact-sounds/Audio/impactGeneric_light_002.ogg"]),
@@ -32,11 +35,22 @@ JUMP = [("kenney_impact-sounds/Audio/impactWood_light_001.ogg", "kenney_impact-s
 
 
 def decode(path):
+    """afconvert -> 16-bit PCM wav; the chunks are parsed by hand (afconvert writes WAVE_FORMAT_EXTENSIBLE for some files)."""
+    import struct
     with tempfile.TemporaryDirectory() as d:
         out = os.path.join(d, "x.wav")
-        subprocess.run(["afconvert", "-f", "WAVE", "-d", "LEI16@%d" % RATE, "-c", "1", path, out], check=True)
-        with wave.open(out) as w:
-            return np.frombuffer(w.readframes(w.getnframes()), dtype="<i2").astype(float) / 32768
+        subprocess.run(["afconvert", "-f", "WAVE", "-d", "LEI16@%d" % RATE, "-c", "1", "--mix", path, out], check=True)
+        b = open(out, "rb").read()
+    i, ch, data = 12, 1, b""
+    while i + 8 <= len(b):
+        cid, n = b[i:i + 4], struct.unpack("<I", b[i + 4:i + 8])[0]
+        if cid == b"fmt ":
+            ch = struct.unpack("<H", b[i + 10:i + 12])[0]
+        elif cid == b"data":
+            data = b[i + 8:i + 8 + n]
+        i += 8 + n + (n & 1)
+    x = np.frombuffer(data[:len(data) // 2 * 2], dtype="<i2").astype(float) / 32768
+    return x.reshape(-1, ch).mean(axis=1) if ch > 1 else x
 
 
 def lowpass(x, f, passes=2):
@@ -84,6 +98,8 @@ def write(name, x):
         w.writeframes((np.clip(x, -1, 1) * 32767).astype("<i2").tobytes())
 
 
+for old in [f for f in os.listdir(OUT) if f.startswith("select") and f.endswith(".wav")]:
+    os.remove(os.path.join(OUT, old))   # D51 补: picking a pawn / hover make no sound
 for event, (max_s, files) in MAP.items():
     for old in [f for f in os.listdir(OUT) if f.startswith(event) and f.endswith(".wav")]:
         os.remove(os.path.join(OUT, old))

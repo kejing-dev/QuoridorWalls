@@ -126,4 +126,7 @@
     <string name="settings_exit">Quit app</string>
     <string name="alert_no_undo">Nothing to undo right now.</string>
     <string name="orient_wait_line">Pick up a wall first, then flip it.</string>
+    <string name="settings_skin">Skin</string>
+    <string name="skin_modern">Modern</string>
+    <string name="skin_classic">Classic</string>
 </resources>

@@ -5,7 +5,7 @@
 #   tools/qw.sh log [REGEX]        logcat lines of tag Quoridor (optionally filtered)
 #   tools/qw.sh install            install the debug APK and start the app
 set -u
-DEV="${DEV:-emulator-5560}"
+DEV="${DEV:-emulator-5562}"
 PKG=io.embodit.quoridorwalls
 ADB="${ADB:-$HOME/Library/Android/sdk/platform-tools/adb}"
 HERE="$(cd "$(dirname "$0")" && pwd)"

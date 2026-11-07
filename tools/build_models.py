@@ -40,8 +40,17 @@ BW, BD, BT = 0.49, 0.53, 0.025
 PITCH, CELL, RAIL, SIDE = 0.05, 0.042, 0.04, 0.02
 CELL_TOP = BT + 0.0015
 GROOVE = BT - 0.002
-WALL_L, WALL_T, WALL_H = 0.096, 0.006, 0.024
-PAWN_R, PAWN_H = 0.017, 0.045
+WALL_L, WALL_T, WALL_H = 0.096, 0.006, 0.012
+PAWN_R, PAWN_H = 0.016, 0.024
+TILT = math.radians(34)
+CONTENT_X = -0.05
+
+# skins (design v0.1.7 skins): cells, grooves, frame, baseline inlay
+SKINS = {
+    "modern": {"cells": (0xDC, 0xE5, 0xE0), "grooves": (0xB9, 0xC7, 0xC0), "frame": (0xE2, 0xD3, 0xB8), "line": (0xF7, 0xF2, 0xE8), "cellRough": 0.72, "frameRough": 0.6, "lineMetal": 0.0, "grain": 0.06},
+    "classic": {"cells": (0x3F, 0x7A, 0x72), "grooves": (0x2A, 0x57, 0x51), "frame": (0x4A, 0x32, 0x22), "line": BRASS, "cellRough": 0.35, "frameRough": 0.62, "lineMetal": 0.85, "grain": 0.16},
+}
+P = SKINS["modern"]
 
 
 def srgb_lin(c):
@@ -196,8 +205,9 @@ def grain(w, h, base, horizontal, seed, contrast=0.12, freq=0.06):
 
 
 def board_texture():
-    im = grain(TEXW, TEXH, WALNUT, horizontal=True, seed=3, contrast=0.16)
-    side = grain(TEXW, TEXH, WALNUT, horizontal=False, seed=4, contrast=0.16)
+    FR = P["frame"]
+    im = grain(TEXW, TEXH, FR, horizontal=True, seed=3, contrast=P["grain"])
+    side = grain(TEXW, TEXH, FR, horizontal=False, seed=4, contrast=P["grain"])
     mask = Image.new("L", (TEXW, TEXH), 0)
     md = ImageDraw.Draw(mask)
     x0, _ = tex_px(-BW / 2 + SIDE, 0); x1, _ = tex_px(BW / 2 - SIDE, 0)
@@ -207,8 +217,9 @@ def board_texture():
     rng = np.random.default_rng(7)
     mott = Image.fromarray((rng.random((TEXH // 32, TEXW // 32)) * 255).astype("uint8")).resize((TEXW, TEXH), Image.BICUBIC)
     m = np.asarray(mott).astype(float) / 255
-    groove = np.stack([np.clip(LACQUER[i] * (0.78 + 0.08 * m), 0, 255) for i in range(3)], axis=-1).astype("uint8")
-    cellc = np.stack([np.clip(LACQUER[i] * (0.97 + 0.10 * m), 0, 255) for i in range(3)], axis=-1).astype("uint8")
+    GR, CE = P["grooves"], P["cells"]
+    groove = np.stack([np.clip(GR[i] * (0.96 + 0.06 * m), 0, 255) for i in range(3)], axis=-1).astype("uint8")
+    cellc = np.stack([np.clip(CE[i] * (0.97 + 0.05 * m), 0, 255) for i in range(3)], axis=-1).astype("uint8")
     gx0, gy1 = tex_px(-4.5 * PITCH, 0.04); gx1, gy0 = tex_px(4.5 * PITCH, 0.04 + 9 * PITCH)
     g = Image.fromarray(groove)
     im.paste(g.crop((int(gx0), int(gy0), int(gx1), int(gy1))), (int(gx0), int(gy0)))
@@ -221,23 +232,23 @@ def board_texture():
             box_ = (int(a[0]), int(a[1]), int(b[0]), int(b[1]))
             im.paste(cimg.crop(box_), box_[:2])
             # a soft lit bevel: lighter far / left edge, darker near / right edge (lacquer catching the key light)
-            d.line((box_[0], box_[1], box_[2], box_[1]), fill=tuple(min(255, int(v * 1.35)) for v in LACQUER), width=3)
-            d.line((box_[0], box_[1], box_[0], box_[3]), fill=tuple(min(255, int(v * 1.2)) for v in LACQUER), width=2)
-            d.line((box_[0], box_[3], box_[2], box_[3]), fill=tuple(int(v * 0.7) for v in LACQUER), width=3)
+            d.line((box_[0], box_[1], box_[2], box_[1]), fill=tuple(min(255, int(v * 1.12)) for v in CE), width=3)
+            d.line((box_[0], box_[1], box_[0], box_[3]), fill=tuple(min(255, int(v * 1.06)) for v in CE), width=2)
+            d.line((box_[0], box_[3], box_[2], box_[3]), fill=tuple(int(v * 0.86) for v in CE), width=3)
             if TEST_F:
                 draw_f(d, (box_[0] + box_[2]) / 2, (box_[1] + box_[3]) / 2, (box_[2] - box_[0]) * 0.6)
-    # rail slot marks: 5 per rail, the recess for each wall stack
-    for s in (RAIL / 2, BD - RAIL / 2):
+    # rail slot marks: 2 rows x 5 shallow slots per rail (a lying wall is 1.2 cm wide)
+    for s in (0.012, 0.028, BD - 0.012, BD - 0.028):
         for i in range(5):
-            x = (i - 2) * 0.098
-            a = tex_px(x - WALL_L / 2 - 0.001, s + 0.0135); b = tex_px(x + WALL_L / 2 + 0.001, s - 0.0135)
-            d.rounded_rectangle((a[0], a[1], b[0], b[1]), radius=6, fill=tuple(int(v * 0.62) for v in WALNUT), outline=tuple(int(v * 0.45) for v in WALNUT), width=3)
+            x = (i - 2) * 0.10
+            a = tex_px(x - WALL_L / 2 - 0.001, s + 0.0068); b = tex_px(x + WALL_L / 2 + 0.001, s - 0.0068)
+            d.rounded_rectangle((a[0], a[1], b[0], b[1]), radius=4, fill=tuple(int(v * 0.8) for v in FR), outline=tuple(int(v * 0.6) for v in FR), width=2)
             if TEST_F:
                 draw_f(d, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (b[1] - a[1]) * 0.8)
     # brass inlays outside rows 1 and 9
     for s0 in (0.034, 0.493):
         a = tex_px(-4.5 * PITCH, s0 + 0.003); b = tex_px(4.5 * PITCH, s0)
-        d.rectangle((a[0], a[1], b[0], b[1]), fill=BRASS)
+        d.rectangle((a[0], a[1], b[0], b[1]), fill=P["line"])
     return im.filter(ImageFilter.GaussianBlur(0.6))
 
 
@@ -250,7 +261,7 @@ def draw_f(d, cx, cy, size):
     d.polygon([(cx + w, cy - h / 2), (cx + w * 0.75, cy - h / 4), (cx + w * 1.25, cy - h / 4)], fill=(255, 220, 0))
 
 
-def build_board():
+def build_board(name="board"):
     m = Mesh()
     def uv(x, z):
         return ((x + BW / 2) / BW, (-z) / BD * -1 + 1 if False else 1 - (-z) / BD)
@@ -275,11 +286,11 @@ def build_board():
         box(m, BRA, -gx, gx, BT, BT + 0.0003, -s - 0.003, -s, uv, bottom=False)
     tex = board_texture()
     materials = [
-        {**mat("lacquer", None, rough=0.42, tex=0), "name": "lacquer"},
-        {**mat("walnut", None, rough=0.62, tex=0), "name": "walnut"},
-        mat("brass", BRASS, rough=0.32, metal=0.85),
+        {**mat("cells", None, rough=P["cellRough"], tex=0), "name": "cells"},
+        {**mat("frame", None, rough=P["frameRough"], tex=0), "name": "frame"},
+        mat("baseline", P["line"], rough=0.32 if P["lineMetal"] else 0.6, metal=P["lineMetal"]),
     ]
-    m.write("board", materials, [tex])
+    m.write(name, materials, [tex])
     return tex
 
 
@@ -322,6 +333,37 @@ def chamfer_box(m, mi, a, b, d, c, uvf):
         for sy in S:
             for sz in S:
                 t(v(sx, sy, sz, 0), v(sx, sy, sz, 1), v(sx, sy, sz, 2))
+
+
+def build_wall_modern():
+    """Modern skin wall (design skins.modern): deep charcoal #33383D matte rounded bar, 9.6 x 1.2 x 0.6 cm."""
+    m = Mesh()
+    a, b, d = WALL_L / 2, WALL_H / 2, WALL_T / 2
+    chamfer_box(m, 0, a, b, d, 0.001, lambda p: (0.5, 0.5))
+    m.write("wall_modern", [mat("charcoal", (0x33, 0x38, 0x3D), rough=0.62)])
+
+
+def build_stand(name, color, rough):
+    """The book-stand under the tipped board (design coordinates.board): two 2 cm side plates in the y-z plane, 3 cm in
+    from each side, filling the triangle under the board's bottom face. Scene (volume) coordinates, not tipped."""
+    m = Mesh()
+    near_z, floor = 0.27, -0.18
+    far_z = near_z - 0.53 * math.cos(TILT) + 0.005
+    far_y = floor + 0.53 * math.sin(TILT) - 0.006
+    for xc in (CONTENT_X - 0.245 + 0.03, CONTENT_X + 0.245 - 0.03):
+        for sx in (-0.01, 0.01):
+            x = xc + sx
+            tri = [(x, floor, near_z - 0.01), (x, floor, far_z), (x, far_y, far_z)]
+            n = (1 if sx > 0 else -1, 0, 0)
+            if sx > 0: m.tri(0, tri[0], tri[2], tri[1], n)
+            else: m.tri(0, tri[0], tri[1], tri[2], n)
+        x0, x1 = xc - 0.01, xc + 0.01
+        # back edge (vertical), bottom edge, and the slanted top edge
+        m.quad(0, (x0, floor, far_z), (x1, floor, far_z), (x1, far_y, far_z), (x0, far_y, far_z), (0, 0, -1))
+        m.quad(0, (x0, floor, near_z - 0.01), (x1, floor, near_z - 0.01), (x1, floor, far_z), (x0, floor, far_z), (0, -1, 0))
+        ny, nz = math.cos(TILT), math.sin(TILT)
+        m.quad(0, (x0, floor, near_z - 0.01), (x0, far_y, far_z), (x1, far_y, far_z), (x1, floor, near_z - 0.01), (0, ny, nz))
+    m.write(name, [mat("stand", color, rough=rough)])
 
 
 def build_wall():
@@ -383,7 +425,12 @@ def build_pawn(name, body, crown):
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
-    build_board()
-    build_wall()
-    build_pawn("pawn_you", IVORY, IVORY)
-    build_pawn("pawn_ai", CINNABAR, IVORY)
+    for old in ("board.glb", "wall.glb", "pawn_you.glb", "pawn_ai.glb"):
+        p = os.path.join(OUT, old)
+        if os.path.exists(p): os.remove(p)
+    for skin in ("modern", "classic"):
+        P = SKINS[skin]
+        build_board("board_" + skin)
+    build_wall_modern()
+    build_stand("stand_modern", (0xE2, 0xD3, 0xB8), 0.6)
+    build_stand("stand_classic", (0x4A, 0x32, 0x22), 0.62)

@@ -1,22 +1,26 @@
 # 围墙棋 Quoridor Walls: project guidance
 
-Gigamic Quoridor (you vs the AI) for PICO OS 6 Shared Space, PICO Spatial SDK BOM 6.1.9, package `io.embodit.quoridorwalls`, v0.1.0.
+Gigamic Quoridor (you vs the AI) for PICO OS 6 Shared Space, PICO Spatial SDK BOM 6.1.9, package `io.embodit.quoridorwalls`, v0.1.1.
 Design contract: spatial-app-factory `apps/quoridor-walls/design-package.json` (profile A12: one main loop, everything in `v2[]`
 is not built: no two players, no four players, no replay / notation, no tilt / skins, no five levels, no puzzles, no timer, no
 pointer-driven wall orientation, no point-hover-point wall path). Skeleton from the Royal Ur project (itself Five Stones / Cloud Air:
 two containers, theme, sound pool, level gate, board-input template); rules, engine, scene and pages are new.
 
-## Surfaces
-- **Board volume** (default container `QuoridorBoard`, Volumetric 0.56 x 0.36 x 0.62 m, fixed scale, gravity aligned, uniform
-  resize). `board.glb` (0.49 x 0.025 x 0.53 m: teal lacquer cells raised 1.5 mm, grooves, walnut frame, two rails, brass inlays)
-  hangs from `tiltRoot` at its near-bottom edge (0, -0.18, +0.27), tipped 20°. 20 maple `wall.glb` (9.6 x 2.4 x 0.6 cm) lie
-  flat in the rails (5 per layer, 2 layers, the top layer is used first), 2 turned pawns (ivory / cinnabar). Marks (rings, dots,
-  path bands, ghost wall, red flash, slot glows) are SDK meshes. Seat card (AttachmentPanel 0.26 x 0.035 m) stands on the
-  floor at the front: whose turn + both wall counts, or why the wall in hand can't go there.
+## Surfaces (v0.1.1, design v0.1.7 after QA round 1)
+- **Board volume** (default container `QuoridorBoard`, Volumetric 0.66 x 0.36 x 0.62 m, fixed scale, gravity aligned, uniform
+  resize). The board hangs from `tiltRoot` at its near-bottom edge (-0.05, -0.18, +0.27), tipped **34°**, on a book-stand.
+  Squat pawns dia 3.2 x 2.4 cm (selection never lifts: an amber ring at the foot), walls 9.6 x 1.2 x 0.6 cm showing 1.0 cm,
+  rails 2 rows x 5 lying walls. Every landing / hint / hover / alert mark floats 1.2 cm above its cell on a 1.5 mm light
+  column (occlusionRule: 0 hidden from 30 eyes, `OcclusionRuleTest`). While the pointer is over the board the wall in hand
+  hides and only the ghost shows. Two skins (settings 皮肤, default modern): modern = coral / navy Tripo pawn, mist-green
+  cells, charcoal walls, ash frame; classic = ivory / deep-cinnabar Tripo pawn, jade lacquer, Tripo maple-walnut wall,
+  walnut frame + brass. Seat card (AttachmentPanel 0.26 x 0.035 m) at the front, centred on the board.
 - **Control window** (`QuoridorControl`, Planar 520 x 400 dp, `Placement.right(QuoridorBoard)`): native SpatialUI `TabBar`,
-  pages 对局 / 新局 / 规则 / 设置. Confirmations (resign / new game / quit) are whole-page cards and lock the volume.
-  Settings [重开控制窗] closes and reopens beside the board (profile D44). [退出应用] closes both containers, removes the
-  tasks, exits the process.
+  pages 对局 / 新局 / 规则 / 设置 (tab labels are taken outside the TabBar block: tabbar-lang). Confirmations (resign / new
+  game / quit) are whole-page cards and lock the volume. [重开控制窗] closes and reopens beside the board. [退出应用]
+  closes both containers, removes the tasks, exits the process.
+- **Start** (design q1-2): an unfinished saved game always comes back (S16), whatever firstRunDone says; firstRunDone is set
+  by the first move or [开始下棋].
 
 ## Code
 | Path | What |
@@ -31,8 +35,12 @@ two containers, theme, sound pool, level gate, board-input template); rules, eng
 | `platform/*` | Application / Graph, SoundPlayer, WindowCtl (+ LevelGate); debug builds add `DebugCommandReceiver` |
 | `tools/` | `build_models.py` (all GLBs, `--test-f` = F↑ textures), `import_cc0_sounds.py` (Kenney CC0), `make_sounds.py` (UI cues), `loudness.py`, `build_icon.py`, `blank.py`, `qw.sh`, `shots.py` |
 
-Input (D50): one `Modifier.boardInput` on the SpatialView. Targets: `sq:<cell 0..80>`, `pawn:<side>`, `rail` (your rail and the
-walls lying in it), `ghost`, `board`. A pinch on a lit cell steps (selected or not, D27); on your pawn selects; holding on the
+Input (D50): one `Modifier.boardInput` on the SpatialView, `TargetResolver.byName(BoardTargets.resolveName)`; all names come
+from `ui/board/BoardNames.kt`. GazeTargets (board-input 通用模式): every cell is a holder `sq:<n>` (whole-cell click box +
+system HoverEffect) with a visible plate `mk:sq:<n>:0`; pawns `pawn:<side>` and walls `wall:<side>:<k>` are holders with the
+skin models as children (HoverEffect on the holder). The board itself has no collider. `BoardTargetTest` replays names /
+logged paths; debug `replay <cell|pawn:0|rail> [hand-ray|eye-hand|controller]` resolves real scene entities and delivers the
+deepest to the listener (lines `REPLAY … -> square=…` / `INPUT tap …` in `files/input-log.txt`). A pinch on a lit cell steps (selected or not, D27); on your pawn selects; holding on the
 rail and dragging past 2.5 cm lifts the top wall (S07): drag deltas are added to the wall's start point and projected on the
 board plane, `SlotTracker` snaps the ghost, letting go sets / bounces / returns it. A pinch on the ghost (other hand) or the
 window's [横 / 竖] flips it. With the control window closed (S10) the first pinch on the volume only reopens it.
@@ -40,9 +48,9 @@ window's [横 / 竖] flips it. With the control window closed (S10) the first pi
 ## Build / test (kj-mbp-m5)
 ```bash
 export JAVA_HOME=~/.pico/primer-cli/jdk/jdk-21.0.13+9/Contents/Home
-./gradlew assembleDebug :app:testDebugUnitTest      # 57 JVM tests: rules (perft 131 + independent implementation), AI strength, slotAt jitter, flow, occlusion
-python3 tools/build_models.py ; python3 tools/import_cc0_sounds.py ; python3 tools/make_sounds.py ; python3 tools/build_icon.py --icon512 icon.png
-DEV=emulator-5560 tools/qw.sh install
+./gradlew assembleDebug :app:testDebugUnitTest      # 69 JVM tests: rules, AI strength, slotAt jitter, flow (incl. firstRunViaTabIsRestored), occlusionRule port, hover, hit replay
+python3 tools/build_models.py ; ~/.factory-venv/bin/python tools/build_tripo_models.py ; python3 tools/import_cc0_sounds.py ; python3 tools/make_sounds.py ; python3 tools/build_icon.py --icon512 icon.png
+DEV=emulator-5562 tools/qw.sh install
 ```
 Emulators are shared: `python3 -I bin/emu_borrow.py borrow quoridor-walls` in the factory, `return` after. Reset the camera
 (`pico-cli camera reset`) before launching: the windows open where the camera looks.
@@ -68,9 +76,10 @@ Emulators are shared: `python3 -I bin/emu_borrow.py borrow quoridor-walls` in th
 | S11 设置 / S12 规则 | `goto S11` / `goto S12` · `exitask` | |
 | S13 确认 | `goto S13` (resign) · `exitask` · `newask` (only with progress) · `confirm` / `no` | |
 | S16 存档恢复 | force-stop mid game, relaunch | |
+| QA 遮挡摆局 | `goto S04` · `new "you 1"` + `coach on` · `goto WALLS10` · `setup "you=e2 ai=e8 side=0"` + `hint on` | design occlusionRule.qa |
 Also: `tap e5|pawn:0|rail|ghost|board`, `move e2`, `pick` / `hover e3h` / `drop` / `back`, `wall e3h`, `setup "you=e4 ai=e6 walls=e3h0.d5v1 left=9,9 side=0"`,
 `new "you|ai|random 1-3"`, `undo`, `hint on|off`, `bands on|off`, `lang zh|en|system`, `sound on|off`, `volume 0-2`, `reduced on|off`,
-`coach on|off`, `seed N`, `freeze MS|off`, `hold on|off`, `hover-cell e5`, `dump`, `evidence`.
+`coach on|off`, `skin modern|classic`, `replay <what> [src]`, `seed N`, `freeze MS|off`, `hold on|off`, `hover-cell e5`, `dump`, `evidence`.
 
 ## QA screenshot list
 S00 S01 S02 S03 (+首局照亮 / 提示 / 墙用完 / 静音) S04 S05 S06 S07 (合法 / 红 / 盘外灰 / 首局亮槽) S08 (+减少动态) S09 (赢 / 认输)
