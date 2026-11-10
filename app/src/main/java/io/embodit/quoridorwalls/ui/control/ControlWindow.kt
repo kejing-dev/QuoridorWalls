@@ -461,7 +461,7 @@ private fun RulesDiagram(skin: Skin) {
     // the picture uses the board's own skin colours (QA r2: it was the old teal board with orange / white pawns)
     val modern = skin == Skin.MODERN
     val frame = if (modern) androidx.compose.ui.graphics.Color(0xFFE2D3B8) else QColors.Walnut
-    val cellC = if (modern) androidx.compose.ui.graphics.Color(0xFFE3EAE6) else androidx.compose.ui.graphics.Color(0xFF152E29)
+    val cellC = if (modern) androidx.compose.ui.graphics.Color(0xFFE3EAE6) else androidx.compose.ui.graphics.Color(0xFF10251F)
     val wallC = if (modern) androidx.compose.ui.graphics.Color(0xFF33383D) else QColors.Maple
     val you = if (modern) androidx.compose.ui.graphics.Color(0xFFFF6B57) else QColors.Ivory
     val them = if (modern) androidx.compose.ui.graphics.Color(0xFF1E3A68) else androidx.compose.ui.graphics.Color(0xFFC55C3D)

@@ -151,7 +151,7 @@ fun BoardScreen() {
                     // gate:allow geometry S00 loading stand-in (design lifecycle "首帧兜底 一块深青绿平板"), removed when the GLBs are in
                     val slab = MeshResource.createBox(Vector3(Layout.BOARD_W, Layout.BOARD_T, Layout.BOARD_D), cornerRadius = 0.003f)
                     // the stand-in takes the saved skin's cell colour, so nothing changes colour when the models arrive
-                    val c = if (graph.settings.value.skin == Skin.CLASSIC) Color4(0.12f, 0.25f, 0.23f, 1f) else Color4(0.94f, 0.96f, 0.95f, 1f)
+                    val c = if (graph.settings.value.skin == Skin.CLASSIC) Color4(0.063f, 0.145f, 0.125f, 1f) else Color4(0.94f, 0.96f, 0.95f, 1f)
                     val mat = PhysicallyBasedMaterial.create().apply { setBaseColor(c); setRoughness(0.7f) }
                     slab to mat
                 }.getOrNull()
