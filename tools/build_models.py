@@ -36,8 +36,15 @@ CINNABAR = (0xFF, 0x8C, 0x42)
 BRASS = (0xC9, 0xA2, 0x4A)
 
 # domain/Layout.kt
-BW, BD, BT = 0.49, 0.53, 0.025
-PITCH, CELL, RAIL, SIDE = 0.05, 0.042, 0.04, 0.02
+# v0.1.4: both wall trays in a 12 cm front margin, 2 cm far frame, board lifted 4.5 cm on the stand
+NEAR, FAR = 0.12, 0.02
+PITCH, CELL, SIDE = 0.05, 0.042, 0.02
+BW, BD, BT = 0.49, NEAR + 9 * PITCH + FAR, 0.025
+RAIL = NEAR
+LIFT = 0.045
+TRAY_X = (-0.12, 0.12)
+TRAY_COL = 0.096 / 2 + 0.006
+TRAY_S0, TRAY_PITCH = 0.014, 0.022
 CELL_TOP = BT + 0.0015
 GROOVE = BT - 0.002
 WALL_L, WALL_T, WALL_H = 0.096, 0.006, 0.012
@@ -46,9 +53,13 @@ TILT = math.radians(34)
 CONTENT_X = -0.05
 
 # skins (design v0.1.7 skins): cells, grooves, frame, baseline inlay
+# v0.1.4 (真机「棋盘颜色要和 VR / MR 背景和谐，现在会受光照影响」, board-game §15.6): mid lightness, low saturation, matte
+# (roughness 0.6-0.8, metallic 0 on every large surface); "tray" = the two tray recesses, "seat" = each side's pawn colour strip
 SKINS = {
-    "modern": {"cells": (0xF0, 0xF4, 0xF1), "grooves": (0xC8, 0xD2, 0xCC), "frame": (0xE2, 0xD3, 0xB8), "line": (0xF7, 0xF2, 0xE8), "cellRough": 0.72, "frameRough": 0.6, "lineMetal": 0.0, "grain": 0.06},
-    "classic": {"cells": (0x10, 0x25, 0x20), "grooves": (0x0A, 0x19, 0x15), "frame": (0x4A, 0x32, 0x22), "line": BRASS, "cellRough": 0.35, "frameRough": 0.62, "lineMetal": 0.85, "grain": 0.16},
+    "modern": {"cells": (0x73, 0x7A, 0x75), "grooves": (0x60, 0x67, 0x62), "frame": (0xB9, 0xAE, 0x9C), "line": (0xD9, 0xD2, 0xC4), "cellRough": 0.72, "frameRough": 0.66, "lineMetal": 0.0, "grain": 0.06,
+               "seat": ((0xFF, 0xE6, 0xDC), (0x1E, 0x3A, 0x68))},
+    "classic": {"cells": (0x70, 0x84, 0x7A), "grooves": (0x5C, 0x6E, 0x65), "frame": (0x9A, 0x78, 0x56), "line": (0xB8, 0x9A, 0x5A), "cellRough": 0.62, "frameRough": 0.66, "lineMetal": 0.0, "grain": 0.14,
+                "seat": ((0xF2, 0xE8, 0xD5), (0x4A, 0x12, 0x0E))},
 }
 P = SKINS["modern"]
 
@@ -178,7 +189,7 @@ def box(m, mi, x0, x1, y0, y1, z0, z1, uvf=None, sides=True, bottom=True):
 
 
 
-TEXW, TEXH = 1536, 1664   # board texture: x -0.245..+0.245 -> 0..TEXW, s 0..0.53 -> TEXH..0 (far edge at the top)
+TEXW, TEXH = 1536, 1856   # board texture: x -0.245..+0.245 -> 0..TEXW, s 0..BD -> TEXH..0 (far edge at the top)
 
 
 def tex_px(x, s):
@@ -220,14 +231,14 @@ def board_texture():
     GR, CE = P["grooves"], P["cells"]
     groove = np.stack([np.clip(GR[i] * (0.96 + 0.06 * m), 0, 255) for i in range(3)], axis=-1).astype("uint8")
     cellc = np.stack([np.clip(CE[i] * (0.97 + 0.05 * m), 0, 255) for i in range(3)], axis=-1).astype("uint8")
-    gx0, gy1 = tex_px(-4.5 * PITCH, 0.04); gx1, gy0 = tex_px(4.5 * PITCH, 0.04 + 9 * PITCH)
+    gx0, gy1 = tex_px(-4.5 * PITCH, NEAR); gx1, gy0 = tex_px(4.5 * PITCH, NEAR + 9 * PITCH)
     g = Image.fromarray(groove)
     im.paste(g.crop((int(gx0), int(gy0), int(gx1), int(gy1))), (int(gx0), int(gy0)))
     cimg = Image.fromarray(cellc)
     d = ImageDraw.Draw(im)
     for r in range(9):
         for c in range(9):
-            cx = (c - 4) * PITCH; cs = 0.04 + (r + 0.5) * PITCH
+            cx = (c - 4) * PITCH; cs = NEAR + (r + 0.5) * PITCH
             a = tex_px(cx - CELL / 2, cs + CELL / 2); b = tex_px(cx + CELL / 2, cs - CELL / 2)
             box_ = (int(a[0]), int(a[1]), int(b[0]), int(b[1]))
             im.paste(cimg.crop(box_), box_[:2])
@@ -237,16 +248,19 @@ def board_texture():
             d.line((box_[0], box_[3], box_[2], box_[3]), fill=tuple(int(v * 0.86) for v in CE), width=3)
             if TEST_F:
                 draw_f(d, (box_[0] + box_[2]) / 2, (box_[1] + box_[3]) / 2, (box_[2] - box_[0]) * 0.6)
-    # rail slot marks: 2 rows x 5 shallow slots per rail (a lying wall is 1.2 cm wide)
-    for s in (0.012, 0.028, BD - 0.012, BD - 0.028):
-        for i in range(5):
-            x = (i - 2) * 0.10
+    # tray slot marks: per side 2 columns x 5 rows of shallow slots (a lying wall is 9.6 x 1.2 cm), 1.2 / 1.0 cm apart,
+    # and a 4 mm strip in that side's pawn colour along the front of its tray
+    for side in (0, 1):
+        for k in range(10):
+            x = TRAY_X[side] + (-1 if k % 2 == 0 else 1) * TRAY_COL; s = TRAY_S0 + (k // 2) * TRAY_PITCH
             a = tex_px(x - WALL_L / 2 - 0.001, s + 0.0068); b = tex_px(x + WALL_L / 2 + 0.001, s - 0.0068)
             d.rounded_rectangle((a[0], a[1], b[0], b[1]), radius=4, fill=tuple(int(v * 0.8) for v in FR), outline=tuple(int(v * 0.6) for v in FR), width=2)
             if TEST_F:
                 draw_f(d, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (b[1] - a[1]) * 0.8)
-    # brass inlays outside rows 1 and 9
-    for s0 in (0.034, 0.493):
+        a = tex_px(TRAY_X[side] - 0.102, 0.006); b = tex_px(TRAY_X[side] + 0.102, 0.002)
+        d.rounded_rectangle((a[0], a[1], b[0], b[1]), radius=3, fill=P["seat"][side])
+    # baseline inlays outside rows 1 and 9
+    for s0 in (NEAR - 0.006, NEAR + 9 * PITCH + 0.003):
         a = tex_px(-4.5 * PITCH, s0 + 0.003); b = tex_px(4.5 * PITCH, s0)
         d.rectangle((a[0], a[1], b[0], b[1]), fill=P["line"])
     return im.filter(ImageFilter.GaussianBlur(0.6))
@@ -268,7 +282,7 @@ def build_board(name="board"):
     LAC, WAL, BRA = 0, 1, 2
     # base slab: lacquer groove floor over the grid, walnut elsewhere (the frame boxes cover their part)
     gx = 4.5 * PITCH
-    s0, s1 = 0.04, 0.04 + 9 * PITCH
+    s0, s1 = NEAR, NEAR + 9 * PITCH
     box(m, LAC, -gx, gx, 0.0, GROOVE, -s1, -s0, uv, sides=False, bottom=False)
     box(m, WAL, -BW / 2, BW / 2, 0.0, 0.0001, -BD, 0.0, uv, sides=False, bottom=True)
     # frame: sides and rails (walnut, top at BT)
@@ -279,10 +293,10 @@ def build_board(name="board"):
     # 81 raised cells
     for r in range(9):
         for c in range(9):
-            cx = (c - 4) * PITCH; cs = 0.04 + (r + 0.5) * PITCH
+            cx = (c - 4) * PITCH; cs = NEAR + (r + 0.5) * PITCH
             box(m, LAC, cx - CELL / 2, cx + CELL / 2, GROOVE, CELL_TOP, -cs - CELL / 2, -cs + CELL / 2, uv, bottom=False)
     # brass inlays, 0.3 mm proud
-    for s in (0.034, 0.493):
+    for s in (NEAR - 0.006, NEAR + 9 * PITCH + 0.003):
         box(m, BRA, -gx, gx, BT, BT + 0.0003, -s - 0.003, -s, uv, bottom=False)
     tex = board_texture()
     materials = [
@@ -340,7 +354,7 @@ def build_wall_modern():
     m = Mesh()
     a, b, d = WALL_L / 2, WALL_H / 2, WALL_T / 2
     chamfer_box(m, 0, a, b, d, 0.001, lambda p: (0.5, 0.5))
-    m.write("wall_modern", [mat("charcoal", (0x33, 0x38, 0x3D), rough=0.62)])
+    m.write("wall_modern", [mat("charcoal", (0x2C, 0x32, 0x35), rough=0.66)])
 
 
 def build_wall_classic():
@@ -349,12 +363,14 @@ def build_wall_classic():
     m = Mesh()
     a, b, d = WALL_L / 2, WALL_H / 2, WALL_T / 2
     # u along the length, v by height (top = walnut band); top face samples the walnut band too
-    chamfer_box(m, 0, a, b, d, 0.001, lambda p: ((p[0] + a) / (2 * a), 0.02 if p[1] >= b - 0.0005 else 1 - (p[1] + b) / (2 * b)))
-    # a pale maple (render check v0.1.1: the vertical face renders ~35 L* under the key light; #F6E7C4 keeps it bright)
-    tex = grain(512, 128, (0xF6, 0xE7, 0xC4), horizontal=True, seed=11, contrast=0.07, freq=0.22)
-    walnut = grain(512, 30, WALNUT, horizontal=True, seed=12, contrast=0.14, freq=0.3)
-    tex.paste(walnut, (0, 0))
-    m.write("wall_classic", [mat("maple", None, rough=0.5, tex=0)], [tex])
+    # v0.1.4: the top face samples the walnut body too (a maple top read only ~22 L* off the celadon cells)
+    chamfer_box(m, 0, a, b, d, 0.001, lambda p: ((p[0] + a) / (2 * a), 0.6 if p[1] >= b - 0.0005 else 1 - (p[1] + b) / (2 * b)))
+    # v0.1.4: on the mid-tone celadon board (rendered L* ~40) a maple face rendered only ~55 (Δ 15); the body is now dark
+    # walnut (rendered ~12, Δ >= 25) with a thin pale maple pinstripe along the top of its faces
+    tex = grain(512, 128, (0x3A, 0x28, 0x19), horizontal=True, seed=11, contrast=0.12, freq=0.22)
+    maple = grain(512, 10, (0xF6, 0xE7, 0xC4), horizontal=True, seed=12, contrast=0.07, freq=0.3)   # a thin pinstripe
+    tex.paste(maple, (0, 0))
+    m.write("wall_classic", [mat("walnut", None, rough=0.62, tex=0)], [tex])
 
 
 def build_stand(name, color, rough):
@@ -362,21 +378,24 @@ def build_stand(name, color, rough):
     from each side, filling the triangle under the board's bottom face. Scene (volume) coordinates, not tipped."""
     m = Mesh()
     near_z, floor = 0.27, -0.18
-    far_z = near_z - 0.53 * math.cos(TILT) + 0.005
-    far_y = floor + 0.53 * math.sin(TILT) - 0.006
+    near_y = floor + LIFT - 0.004
+    far_z = near_z - BD * math.cos(TILT) + 0.005
+    far_y = floor + LIFT + BD * math.sin(TILT) - 0.006
     for xc in (CONTENT_X - 0.245 + 0.03, CONTENT_X + 0.245 - 0.03):
         for sx in (-0.01, 0.01):
             x = xc + sx
-            tri = [(x, floor, near_z - 0.01), (x, floor, far_z), (x, far_y, far_z)]
+            # side plate: floor front, floor back, top back, top front (the lifted near edge)
+            q = [(x, floor, near_z - 0.01), (x, floor, far_z), (x, far_y, far_z), (x, near_y, near_z - 0.01)]
             n = (1 if sx > 0 else -1, 0, 0)
-            if sx > 0: m.tri(0, tri[0], tri[2], tri[1], n)
-            else: m.tri(0, tri[0], tri[1], tri[2], n)
+            if sx > 0: m.quad(0, q[0], q[3], q[2], q[1], n)
+            else: m.quad(0, q[0], q[1], q[2], q[3], n)
         x0, x1 = xc - 0.01, xc + 0.01
-        # back edge (vertical), bottom edge, and the slanted top edge
+        # back edge, front edge (both vertical), bottom edge, and the slanted top edge
         m.quad(0, (x0, floor, far_z), (x1, floor, far_z), (x1, far_y, far_z), (x0, far_y, far_z), (0, 0, -1))
+        m.quad(0, (x1, floor, near_z - 0.01), (x0, floor, near_z - 0.01), (x0, near_y, near_z - 0.01), (x1, near_y, near_z - 0.01), (0, 0, 1))
         m.quad(0, (x0, floor, near_z - 0.01), (x1, floor, near_z - 0.01), (x1, floor, far_z), (x0, floor, far_z), (0, -1, 0))
         ny, nz = math.cos(TILT), math.sin(TILT)
-        m.quad(0, (x0, floor, near_z - 0.01), (x0, far_y, far_z), (x1, far_y, far_z), (x1, floor, near_z - 0.01), (0, ny, nz))
+        m.quad(0, (x0, near_y, near_z - 0.01), (x0, far_y, far_z), (x1, far_y, far_z), (x1, near_y, near_z - 0.01), (0, ny, nz))
     m.write(name, [mat("stand", color, rough=rough)])
 
 
@@ -447,5 +466,5 @@ if __name__ == "__main__":
         build_board("board_" + skin)
     build_wall_modern()
     build_wall_classic()
-    build_stand("stand_modern", (0xE2, 0xD3, 0xB8), 0.6)
-    build_stand("stand_classic", (0x4A, 0x32, 0x22), 0.62)
+    build_stand("stand_modern", (0xB9, 0xAE, 0x9C), 0.66)
+    build_stand("stand_classic", (0x9A, 0x78, 0x56), 0.66)

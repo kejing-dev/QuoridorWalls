@@ -14,17 +14,30 @@ class LayoutTest {
         assertTrue(abs(q.x - 0.1f) < 1e-5f && abs(q.y - 0.02f) < 1e-5f && abs(q.z + 0.3f) < 1e-5f)
     }
 
-    @Test fun railWallsLieInTwoRowsOfFiveWithoutOverlap() {
-        for (side in 0..1) {
-            val boxes = (0 until Q.WALLS).map { l.railWallBoxes()[side * Q.WALLS + it].box }
-            for (i in boxes.indices) for (j in i + 1 until boxes.size) {
-                val a = boxes[i]; val b = boxes[j]
-                val overlap = a.min.x < b.max.x - 1e-5f && b.min.x < a.max.x - 1e-5f && a.min.z < b.max.z - 1e-5f && b.min.z < a.max.z - 1e-5f
-                assertTrue("rail $side walls $i / $j overlap", !overlap)
-            }
-            assertEquals(1, boxes.map { it.min.y }.distinct().size)   // one layer, all at the rail top
-            assertTrue(boxes.all { -it.min.z <= Layout.RAIL + 1e-4f || -it.max.z >= Layout.BOARD_D - Layout.RAIL - 1e-4f })
+    /** §15.6: both trays in the front margin, lying flat, >= 1 cm apart, click boxes not overlapping, away from the volume sides. */
+    @Test fun trayWallsLieFlatInTheFrontMarginOneCentimetreApart() {
+        val all = l.railWallBoxes().map { it.box }
+        for (i in all.indices) for (j in i + 1 until all.size) {
+            val a = all[i]; val b = all[j]
+            val gapX = maxOf(b.min.x - a.max.x, a.min.x - b.max.x)
+            val gapS = maxOf(b.min.z - a.max.z, a.min.z - b.max.z)
+            assertTrue("walls $i / $j only ${maxOf(gapX, gapS)} m apart", maxOf(gapX, gapS) >= 0.0099f)
         }
+        assertEquals(1, all.map { it.min.y }.distinct().size)   // one layer, all on the frame top
+        assertTrue(all.all { -it.min.z <= Layout.NEAR - 0.005f && -it.max.z >= 0f })   // in the front margin, before the grid
+        // click boxes (one ring bigger) of neighbours do not overlap
+        for (side in 0..1) for (k in 0 until Q.WALLS) for (k2 in k + 1 until Q.WALLS) {
+            val a = l.railCentre(side, k); val b = l.railCentre(side, k2)
+            assertTrue(abs(a.x - b.x) >= Layout.WALL_HIT.x - 1e-4f || abs(a.z - b.z) >= Layout.WALL_HIT.y - 1e-4f)
+        }
+        // not at the volume sides: >= 4 cm in from them (scene x, content shifted 5 cm left)
+        for (b in all) assertTrue(Layout.CONTENT_X + b.min.x >= -Layout.VOLUME.x / 2 + 0.04f && Layout.CONTENT_X + b.max.x <= Layout.VOLUME.x / 2 - 0.04f)
+        assertTrue(Layout.WALL_HIT.y >= 0.02f && Layout.WALL_HIT.z >= 0.02f)
+    }
+
+    @Test fun slotsSitOnTheCrossings() {
+        for (w in Wall.ALL) { val p = l.slotCentre(w.c, w.r); assertEquals(l.crossX(w.c), p.x, 1e-6f); assertEquals(-l.crossS(w.r), p.z, 1e-6f) }
+        assertTrue(Layout.STUD_D <= 0.005f + 1e-6f)
     }
 
     @Test fun nearestCrossAndSurfaceRoundTrip() {

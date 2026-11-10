@@ -31,11 +31,11 @@ import io.embodit.quoridorwalls.domain.Skin
  *   adb shell am broadcast -a io.embodit.quoridorwalls.DEBUG -p io.embodit.quoridorwalls --es cmd <cmd> [--es a "<arg>"]
  *
  *   goto S01..S16           reach a named state (AGENTS.md lists what each sets up)
- *   tap <target>            a pinch on a target: sq:<cell 0..80> | e2 (cell name) | pawn:0 | pawn:1 | rail | ghost | board
+ *   tap <target>            a pinch on a target: sq:<cell 0..80> | e2 (cell name) | pawn:0 | pawn:1 | rail:0 | rail:1 | slot:<c>:<r> | ghost | board
  *   move e2                 a pinch on that cell (the lit-cell path)
  *   pick · hover e3h · drop · orient · back      the wall-in-hand path (= hold on the rail, drag over a slot, let go)
  *   wall e3h                pick + hover + drop in one go          setup "you=e4 ai=e6 walls=e3h0.d5v1 left=9,9 side=0"
- *   new "you 1" | "ai 3" | "random 2"   undo · hint on|off · bands on|off · resign · confirm · no · exitask · newask
+ *   new "you 1" | "ai 3" | "random 2" | "you 1 local" (two players on one headset)   undo · hint on|off · bands on|off · resign · confirm · no · exitask · newask
  *   page play|new|rules|settings · lang zh|en|system · sound on|off · volume 0-2 · reduced on|off · coach on|off · seed N
  *   freeze MS|off · hold on|off (AI waits) · s00hold on|off · welcome · reopen · closepanel · hover-cell e5 · dump · evidence
  */
@@ -79,7 +79,7 @@ class DebugCommandReceiver : BroadcastReceiver() {
                 "S16" -> { Log.i(TAG, "restore=${flow.continueSaved()}"); Ui.page = Page.PLAY }
                 else -> Log.w(TAG, "unknown state $a")
             }
-            "tap" -> route(graph, BoardTargets.resolveName(Q.parseCell(a)?.let { BoardNames.square(it) } ?: a, flow.state.value.pos.left[Q.YOU]))
+            "tap" -> route(graph, BoardTargets.resolveName(Q.parseCell(a)?.let { BoardNames.square(it) } ?: a, flow.state.value.pos.left))
             // board-input 命中回放: take the real scene entities (gaze plate, cell holder, the pawn's deepest model mesh, the
             // next rail wall's mesh), resolve them up the parent chain like a real hit and hand the deepest to the listener
             "replay" -> {
@@ -92,16 +92,16 @@ class DebugCommandReceiver : BroadcastReceiver() {
                     val ents = scene.replayEntities(what)
                     ents.forEachIndexed { i, e ->
                         val (target, path) = resolveUp(e, resolver)
-                        val cell = BoardTargets.cellFor(target) { flow.state.value.pos.pawns[it] }
-                        BoardInputLog.write(TAG, "REPLAY src=${src.label} path=$path -> target=$target -> square=${if (cell >= 0) Q.name(cell) else "-"}${if (i == 0) " (delivered)" else ""}")
+                        BoardInputLog.write(TAG, "REPLAY src=${src.label} path=$path -> target=$target -> ${BoardTargets.logOf(target) { flow.state.value.pos.pawns[it] }}${if (i == 0) " (delivered)" else ""}")
                     }
                     ents.firstOrNull()?.let { listener.onTap(resolveUp(it, resolver).first, src, null) }
                 }
             }
+            "light" -> { val f = a.split(" ").mapNotNull { it.toFloatOrNull() }; SceneHolder.scene?.setLighting(f.getOrElse(0) { 1f }, f.getOrElse(1) { io.embodit.quoridorwalls.ui.board.BoardScene.KEY_LIGHT }) }
             "marks" -> SceneHolder.scene?.markFilter = when (a) { "", "all" -> null; "none" -> emptySet(); else -> a.split(",").toSet() }
             "skin" -> settings { it.copy(skin = if (a == "classic") Skin.CLASSIC else Skin.MODERN) }
             "move" -> Q.parseCell(a)?.let { flow.tapCell(it) }
-            "pick" -> flow.pickWall()
+            "pick" -> flow.tapRail(flow.state.value.side)
             "hover" -> flow.holdOver(Q.parseWall(a))
             "drop" -> flow.dropWall()
             "orient" -> flow.toggleOrient()
@@ -112,7 +112,8 @@ class DebugCommandReceiver : BroadcastReceiver() {
                 val f = a.split(" ").filter { it.isNotBlank() }
                 flow.newGame(GameSetup(
                     level = f.getOrNull(1)?.toIntOrNull()?.coerceIn(1, 3) ?: Engine.EASY,
-                    first = when (f.getOrNull(0)) { "ai", "them" -> FirstPick.THEM; "random" -> FirstPick.RANDOM; else -> FirstPick.ME },
+                    first = when (f.getOrNull(0)) { "ai", "them", "far" -> FirstPick.THEM; "random" -> FirstPick.RANDOM; else -> FirstPick.ME },
+                    mode = if (f.contains("local")) io.embodit.quoridorwalls.domain.Mode.LOCAL else io.embodit.quoridorwalls.domain.Mode.AI,
                 ))
                 Ui.page = Page.PLAY
             }

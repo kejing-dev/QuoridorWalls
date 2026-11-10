@@ -1,6 +1,25 @@
 # 围墙棋 Quoridor Walls: project guidance
 
-Gigamic Quoridor (you vs the AI) for PICO OS 6 Shared Space, PICO Spatial SDK BOM 6.1.9, package `io.embodit.quoridorwalls`, v0.1.1.
+Gigamic Quoridor (you vs the AI, or two players on one headset) for PICO OS 6 Shared Space, PICO Spatial SDK BOM 6.1.9, package
+`io.embodit.quoridorwalls`, v0.1.4.
+
+## v0.1.4 (2026-11-09 真机反馈返工)
+- **Walls by taps** (v0.1.3 headset input-log: 19 taps on the rail did nothing but say "hold and drag", ray drags travelled
+  6–14 mm, never the 2.5 cm drag threshold; taps on the far rail resolved to null). Both trays now lie in a 12 cm front
+  margin (near pawn left, far pawn right, 2 x 5 lying walls each, 1.2 / 1.0 cm apart, click box 10.4 x 2 x 2 cm per wall +
+  a `rail:<side>` block box). Tap your tray -> the wall is in hand (silent) and 64 slot targets `slot:<c>:<r>` switch on
+  (whole-pitch click box 6 mm above each crossing + a 5 mm stud that carries the system HoverEffect); tap a slot -> ghost
+  there (green / red + path preview); tap it again, the ghost or [放下] -> set (or S08 bounce); [横 / 竖] turns it; the tray
+  or [放回] puts it back; your pawn = put back + select. Hold-and-drag on the tray still works. Placed walls lose their
+  click box. The board is lifted 4.5 cm on its stand so the seat card never covers the trays; volume 0.66 x 0.44 x 0.62.
+- **Board colours** (§15.6): mid lightness, low saturation, matte (roughness 0.6–0.8, metallic 0): modern stone-sage cells
+  #737A75, ash frame #B9AE9C, pale coral #FFE6DC / navy pawns, charcoal walls; classic celadon #70847A, teak frame
+  #9A7856, ivory / deep cinnabar #4A120E pawns, dark walnut walls with a maple pinstripe. The root carries
+  `EnvironmentLightingSettingsComponent(1.0)` (system IBL on every PBR material), the key light is a 0.45 fill. All marks light.
+  Debug `light <env> <key>` scales both (bright / dim comparison, apps/quoridor-walls/build/env/).
+- **Two players on one headset** (新局 → 怎么下: 人机 / 双人同机): `GameConfig.mode = LOCAL`, both sides human, each from
+  its own tray, status / seat card name the side to move by pawn colour, undo = one move, saved with the game.
+- Place / jump sounds: five-stones v0.1.5 reference recordings (freesound 840425 CC0), §15.1.
 Design contract: spatial-app-factory `apps/quoridor-walls/design-package.json` (profile A12: one main loop, everything in `v2[]`
 is not built: no two players, no four players, no replay / notation, no tilt / skins, no five levels, no puzzles, no timer, no
 pointer-driven wall orientation, no point-hover-point wall path). Skeleton from the Royal Ur project (itself Five Stones / Cloud Air:
@@ -48,7 +67,7 @@ window's [横 / 竖] flips it. With the control window closed (S10) the first pi
 ## Build / test (kj-mbp-m5)
 ```bash
 export JAVA_HOME=~/.pico/primer-cli/jdk/jdk-21.0.13+9/Contents/Home
-./gradlew assembleDebug :app:testDebugUnitTest      # 69 JVM tests: rules, AI strength, slotAt jitter, flow (incl. firstRunViaTabIsRestored), occlusionRule port, hover, hit replay
+./gradlew assembleDebug :app:testDebugUnitTest      # 81 JVM tests: rules, AI strength, slotAt jitter, flow (incl. firstRunViaTabIsRestored), occlusionRule port, hover, hit replay
 python3 tools/build_models.py ; ~/.factory-venv/bin/python tools/build_tripo_models.py ; python3 tools/import_cc0_sounds.py ; python3 tools/make_sounds.py ; python3 tools/build_icon.py --icon512 icon.png
 DEV=emulator-5562 tools/qw.sh install
 ```
@@ -77,7 +96,8 @@ Emulators are shared: `python3 -I bin/emu_borrow.py borrow quoridor-walls` in th
 | S13 确认 | `goto S13` (resign) · `exitask` · `newask` (only with progress) · `confirm` / `no` | |
 | S16 存档恢复 | force-stop mid game, relaunch | |
 | QA 遮挡摆局 | `goto S04` · `new "you 1"` + `coach on` · `goto WALLS10` · `setup "you=e2 ai=e8 side=0"` + `hint on` | design occlusionRule.qa |
-Also: `tap e5|pawn:0|rail|ghost|board`, `move e2`, `pick` / `hover e3h` / `drop` / `back`, `wall e3h`, `setup "you=e4 ai=e6 walls=e3h0.d5v1 left=9,9 side=0"`,
+Also: `tap e5|pawn:0|rail:0|rail:1|slot:4:5|ghost|board`, `new "you 1 local"` (two players), `light 1.8 1.2` / `light 0.3 0.15` (bright / dim),
+`replay <e5|pawn:0|rail:0|rail:1|slot:c:r|ghost> [hand-ray|eye-hand|controller]`,, `move e2`, `pick` / `hover e3h` / `drop` / `back`, `wall e3h`, `setup "you=e4 ai=e6 walls=e3h0.d5v1 left=9,9 side=0"`,
 `new "you|ai|random 1-3"`, `undo`, `hint on|off`, `bands on|off`, `lang zh|en|system`, `sound on|off`, `volume 0-2`, `reduced on|off`,
 `coach on|off`, `skin modern|classic`, `replay <what> [src]`, `seed N`, `freeze MS|off`, `hold on|off`, `hover-cell e5`, `dump`, `evidence`.
 

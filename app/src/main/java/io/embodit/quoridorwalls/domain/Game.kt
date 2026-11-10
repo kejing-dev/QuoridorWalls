@@ -7,15 +7,19 @@ enum class Language { SYSTEM, ZH, EN }
 /** design skins: modern (default; coral / navy pawns, mist-green board, charcoal walls) and classic (ivory / deep cinnabar, jade lacquer, maple). */
 enum class Skin { MODERN, CLASSIC }
 
-/** One game's setup with the first mover resolved. v1 is you (near, side 0) against the AI (A12; two players is v2). */
-data class GameConfig(val level: Int = Engine.EASY, val firstSide: Int = Q.YOU) {
-    fun isHuman(side: Int): Boolean = side == Q.YOU
+/** Who plays the far side (side 1): the AI, or the same person on this headset (2026-11-09 用户真机：「加个自己和自己下的模式」). */
+enum class Mode { AI, LOCAL }
+
+/** One game's setup with the first mover resolved. Side 0 = near pawn, side 1 = far pawn (the AI in [Mode.AI]). */
+data class GameConfig(val level: Int = Engine.EASY, val firstSide: Int = Q.YOU, val mode: Mode = Mode.AI) {
+    val local: Boolean get() = mode == Mode.LOCAL
+    fun isHuman(side: Int): Boolean = side == Q.YOU || mode == Mode.LOCAL
     /** design gameSpec.pathBands: bands on by default for easy / medium, off for hard (the play-page button flips them). */
     val bandsDefault: Boolean get() = level != Engine.HARD
 }
 
 /** The new-game page's choices (remembered between games; a random first mover only goes into the game). */
-data class GameSetup(val level: Int = Engine.EASY, val first: FirstPick = FirstPick.ME)
+data class GameSetup(val level: Int = Engine.EASY, val first: FirstPick = FirstPick.ME, val mode: Mode = Mode.AI)
 
 /** App settings (SharedPreferences). design dataModel.settings: language, sound, volume, reducedMotion, firstRunDone. */
 data class Settings(
@@ -89,14 +93,14 @@ object SaveCodec {
 
     fun encode(g: SavedGame): String = listOf(
         "qw1", g.config.level.toString(), g.config.firstSide.toString(), if (g.hintOn) "1" else "0", if (g.bandsOn) "1" else "0",
-        snap(g.now), g.undo.joinToString(";") { snap(it) },
+        snap(g.now), g.undo.joinToString(";") { snap(it) }, if (g.config.local) "local" else "ai",
     ).joinToString("|")
 
     fun decode(text: String): SavedGame? = runCatching {
         val f = text.trim().split("|")
         if (f.size < 7 || f[0] != "qw1") return null
         SavedGame(
-            config = GameConfig(f[1].toInt().coerceIn(1, 3), f[2].toInt().coerceIn(0, 1)),
+            config = GameConfig(f[1].toInt().coerceIn(1, 3), f[2].toInt().coerceIn(0, 1), if (f.getOrNull(7) == "local") Mode.LOCAL else Mode.AI),
             hintOn = f[3] == "1", bandsOn = f[4] == "1",
             now = parseSnap(f[5]),
             undo = if (f[6].isBlank()) emptyList() else f[6].split(";").map { parseSnap(it) },

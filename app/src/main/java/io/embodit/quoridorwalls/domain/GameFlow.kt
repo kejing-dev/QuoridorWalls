@@ -21,7 +21,7 @@ enum class Phase(val id: String) {
 enum class Sound { SELECT, PLACE, JUMP, GRAB, WALL, BOUNCE, ILLEGAL, BAND, WIN, LOSE }
 
 /** One-liners for taps that do nothing (design T2 and friends). [cell] flashes red in the volume when set. */
-enum class AlertKind { WALL_BETWEEN, DIAGONAL, THEIRS, FAR, NO_WALLS, HOLD_TO_DRAG, NOT_YOUR_TURN, NO_UNDO, ORIENT_NEEDS_WALL }
+enum class AlertKind { WALL_BETWEEN, DIAGONAL, THEIRS, FAR, NO_WALLS, NOT_YOUR_TURN, NO_UNDO, ORIENT_NEEDS_WALL, THEIR_WALLS, TAP_SLOT, PLACE_NEEDS_SLOT }
 
 data class Alert(val kind: AlertKind, val cell: Int?, val at: Long)
 
@@ -43,8 +43,11 @@ sealed interface Anim {
     ) : Anim
 }
 
-/** S07: your wall in hand. [slot] = where the ghost snapped (null = off the board), [fail] = why it can't go there. */
-data class Hold(val railK: Int, val orient: Orient, val slot: Wall?, val fail: WallFail?, val lastSlot: Wall?)
+/**
+ * S07: a wall in hand. [slot] = where the ghost stands (null = not on the board yet), [fail] = why it can't go there.
+ * [byTap] = picked with a tap on the tray (two-stage: tap a slot dot to preview, tap it / the ghost / [放下] again to set).
+ */
+data class Hold(val railK: Int, val orient: Orient, val slot: Wall?, val fail: WallFail?, val lastSlot: Wall?, val byTap: Boolean = false)
 
 /** S08: a rejected wall flashing red, then flying back to rail slot [railK]. */
 data class Reject(val wall: Wall, val fail: WallFail, val railK: Int, val fromHand: V3, val startedAt: Long)
@@ -220,17 +223,17 @@ class GameFlow(
     fun newGame(setup: GameSetup) {
         val first = when (setup.first) { FirstPick.ME -> Q.YOU; FirstPick.THEM -> Q.AI; FirstPick.RANDOM -> if (rng.nextBoolean()) Q.YOU else Q.AI }
         onSettings(settings().copy(lastSetup = setup))
-        newGame(GameConfig(setup.level.coerceIn(1, 3), first))
+        newGame(GameConfig(setup.level.coerceIn(1, 3), first, setup.mode))
     }
 
     fun newGame(config: GameConfig) {
         cancelJobs()
         set(PlayState(
-            phase = Phase.IDLE, config = config, side = config.firstSide, firstGame = !settings().coachDone && config.level != Engine.HARD,
+            phase = Phase.IDLE, config = config, side = config.firstSide, firstGame = !settings().coachDone && config.level != Engine.HARD && !config.local,
             hintOn = s.hintOn, bandsOn = config.bandsDefault, welcome = s.welcome, freezeMs = s.freezeMs, freezeAt = s.freezeAt,
         ))
         refreshBands()
-        log("GAME new level=${config.level} first=${config.firstSide}")
+        log("GAME new level=${config.level} first=${config.firstSide} mode=${config.mode}")
         persist()
         nextTurn()
     }
@@ -281,6 +284,12 @@ class GameFlow(
         if (locked("cell")) return
         log("TAP cell ${Q.name(cell)} phase=${st.phase.id}")
         if (st.config == null) return
+        if (st.phase == Phase.HOLDING) {
+            // a wall in hand: your own pawn = changed your mind (the wall goes back, the pawn is selected); a cell = say
+            // where the wall goes (the slot dots on the grooves)
+            if (cell == st.pos.pawns[st.side]) { cancelHold("pawn tapped"); select() } else alert(AlertKind.TAP_SLOT, null)
+            return
+        }
         if (!st.humansTurn || st.phase !in setOf(Phase.IDLE, Phase.SELECTED)) {
             if (st.phase == Phase.THINKING) alert(AlertKind.NOT_YOUR_TURN, null)
             return
@@ -314,14 +323,57 @@ class GameFlow(
         if (s.phase == Phase.SELECTED) set(s.copy(phase = Phase.IDLE))
     }
 
-    /** A tap (not a drag) on your rail: walls are moved by holding and dragging (design input.wall, v1 one path). */
-    fun tapRail() {
+    /**
+     * A tap on a wall tray (v0.1.4 真机返工「墙点不到」: a tap used to only say "hold and drag", and ray drags never travelled
+     * the 2.5 cm, so walls could not be taken at all). Your tray: picks the next wall (two-stage, S07); tapped again with
+     * that wall in hand: puts it back. The other side's tray: says whose walls those are.
+     */
+    fun tapRail(side: Int = s.side) {
         if (locked("rail")) return
         val st = s
-        log("TAP rail phase=${st.phase.id}")
-        if (!st.humansTurn || st.phase !in setOf(Phase.IDLE, Phase.SELECTED)) return
-        if (st.phase == Phase.SELECTED) set(st.copy(phase = Phase.IDLE))
-        alert(if (st.pos.left[st.side] <= 0) AlertKind.NO_WALLS else AlertKind.HOLD_TO_DRAG, null)
+        log("TAP rail:$side phase=${st.phase.id}")
+        if (st.config == null) return
+        if (st.phase == Phase.HOLDING) { if (side == st.side) cancelHold("tray tapped") else alert(AlertKind.THEIR_WALLS, null); return }
+        if (!st.humansTurn || st.phase !in setOf(Phase.IDLE, Phase.SELECTED)) {
+            if (st.phase == Phase.THINKING) alert(AlertKind.NOT_YOUR_TURN, null)
+            return
+        }
+        if (side != st.side) { alert(AlertKind.THEIR_WALLS, null); return }
+        pickWall(byTap = true)
+    }
+
+    /**
+     * A tap on the slot dot at crossing (c, r) with a wall in hand: the first tap stands the ghost there (green / red, the
+     * paths preview), a second tap on the same slot sets it (or bounces it, S08). [横 / 竖] turns it.
+     */
+    fun tapSlot(c: Int, r: Int) {
+        if (locked("slot")) return
+        val st = s
+        val h = st.hold
+        log("TAP slot ${Wall(c, r, h?.orient ?: Orient.H).notation} phase=${st.phase.id}")
+        if (h == null || st.phase != Phase.HOLDING) return
+        val w = Wall(c, r, h.orient)
+        if (h.slot == w) { dropWall(); return }
+        holdPoint = layout.wallCentre(w, sunk = false)
+        tracker.reset()
+        setHoldSlot(w)
+    }
+
+    /** A tap on the ghost wall = set it there ([放下] does the same). */
+    fun tapGhost() {
+        if (locked("ghost")) return
+        val st = s
+        log("TAP ghost phase=${st.phase.id}")
+        if (st.phase != Phase.HOLDING || st.hold?.slot == null) return
+        dropWall()
+    }
+
+    /** [放下] in the window: sets the ghost (as a second tap); without a slot it says where to tap. */
+    fun placeHeld() {
+        val h = s.hold ?: return
+        if (s.phase != Phase.HOLDING) return
+        if (h.slot == null) { alert(AlertKind.PLACE_NEEDS_SLOT, null); return }
+        dropWall()
     }
 
     private fun select() {
@@ -344,8 +396,11 @@ class GameFlow(
 
     // ------------------------------------------------------------------ input: the wall in hand (S07)
 
-    /** Hold-and-drag started on your rail: the top wall lifts and follows the hand / ray. Returns true when taken. */
-    fun pickWall(): Boolean {
+    /**
+     * Takes the next wall of the side to move: a tap on the tray ([byTap], it floats above the tray until a slot is
+     * tapped) or hold-and-drag (it follows the hand / ray). Silent (D51 补: picking is a selection). True when taken.
+     */
+    fun pickWall(byTap: Boolean = false): Boolean {
         val st = s
         if (locked("pick")) return false
         if (!st.humansTurn || st.phase !in setOf(Phase.IDLE, Phase.SELECTED)) { log("PICK refused phase=${st.phase.id}"); return false }
@@ -354,9 +409,8 @@ class GameFlow(
         tracker.reset()
         holdPoint = layout.railCentre(st.side, k) + V3(0f, Layout.HOLD_UP + Layout.WALL_H / 2, 0f)
         val coach = st.firstGame && !st.coachHold
-        set(st.copy(phase = Phase.HOLDING, hold = Hold(k, Orient.H, null, null, null), alert = null, coachHold = st.coachHold || coach))
-        onSound(Sound.GRAB)
-        log("PICK rail=$k S07")
+        set(st.copy(phase = Phase.HOLDING, hold = Hold(k, Orient.H, null, null, null, byTap), alert = null, coachHold = st.coachHold || coach))
+        log("PICK side=${st.side} rail=$k ${if (byTap) "tap" else "drag"} S07")
         return true
     }
 
@@ -658,7 +712,7 @@ class GameFlow(
         set(st.copy(phase = Phase.RESULT, winner = winner, resigned = resigned, anim = null, hold = null, reject = null, steps = emptyList(),
             hint = null, confirm = null, goalAt = if (resigned) 0 else st.goalAt))
         // the opponent's win is not a fanfare (profile D44)
-        onSound(if (winner == Q.YOU) Sound.WIN else Sound.LOSE)
+        onSound(if (winner == Q.YOU || st.config?.local == true) Sound.WIN else Sound.LOSE)
         log("RESULT winner=$winner resigned=$resigned moves=${st.stats.movesYou} detour=${st.stats.detourGiven} S09")
         if (st.firstGame) onSettings(settings().copy(coachDone = true))
         store.clear()

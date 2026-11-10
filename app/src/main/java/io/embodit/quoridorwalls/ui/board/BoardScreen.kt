@@ -63,6 +63,8 @@ import io.embodit.quoridorwalls.ui.board.input.InputSource
 import io.embodit.quoridorwalls.ui.board.input.Offset3M
 import io.embodit.quoridorwalls.ui.board.input.TargetResolver
 import io.embodit.quoridorwalls.ui.board.input.boardInput
+import io.embodit.quoridorwalls.ui.control.sideColor
+import io.embodit.quoridorwalls.ui.control.sideName
 import io.embodit.quoridorwalls.ui.control.wallFailText
 import io.embodit.quoridorwalls.ui.theme.QColors
 import io.embodit.quoridorwalls.ui.theme.localized
@@ -151,7 +153,7 @@ fun BoardScreen() {
                     // gate:allow geometry S00 loading stand-in (design lifecycle "首帧兜底 一块深青绿平板"), removed when the GLBs are in
                     val slab = MeshResource.createBox(Vector3(Layout.BOARD_W, Layout.BOARD_T, Layout.BOARD_D), cornerRadius = 0.003f)
                     // the stand-in takes the saved skin's cell colour, so nothing changes colour when the models arrive
-                    val c = if (graph.settings.value.skin == Skin.CLASSIC) Color4(0.063f, 0.145f, 0.125f, 1f) else Color4(0.94f, 0.96f, 0.95f, 1f)
+                    val c = if (graph.settings.value.skin == Skin.CLASSIC) Color4(0.439f, 0.518f, 0.478f, 1f) else Color4(0.451f, 0.478f, 0.459f, 1f)
                     val mat = PhysicallyBasedMaterial.create().apply { setBaseColor(c); setRoughness(0.7f) }
                     slab to mat
                 }.getOrNull()
@@ -192,7 +194,7 @@ fun BoardScreen() {
 
 /** Entity name -> target (pure [BoardTargets.resolveName]; the same function the JVM replay test runs). */
 internal fun boardResolver(graph: Graph): TargetResolver<BoardTarget> =
-    TargetResolver.byName { name -> BoardTargets.resolveName(name, graph.flow.state.value.pos.left[Q.YOU]) }
+    TargetResolver.byName { name -> BoardTargets.resolveName(name, graph.flow.state.value.pos.left) }
 
 /** Every resolved tap / drag goes through [route] and the hold calls (the same calls the window and the debug broadcast make). */
 internal class BoardListener(private val graph: Graph, private val scene: BoardScene) : BoardInputListener<BoardTarget> {
@@ -207,14 +209,15 @@ internal class BoardListener(private val graph: Graph, private val scene: BoardS
     }
 
     override fun onTap(target: BoardTarget?, source: InputSource, position: Offset3D?) {
-        val cell = BoardTargets.cellFor(target) { graph.flow.state.value.pos.pawns[it] }
-        BoardInputLog.write(TAG, "INPUT tap src=${source.label} target=$target -> square=${if (cell >= 0) Q.name(cell) else "-"}")
+        BoardInputLog.write(TAG, "INPUT tap src=${source.label} target=$target -> ${BoardTargets.logOf(target) { graph.flow.state.value.pos.pawns[it] }}")
         if (consumedByClosedWindow()) return
         route(graph, target)
     }
 
     override fun onDragStart(target: BoardTarget, source: InputSource): Boolean {
-        if (target != BoardTarget.Rail) return false
+        // hold-and-drag on your tray still works; a tap on it picks the wall too (two-stage, route -> tapRail)
+        if (target !is BoardTarget.Rail || target.side != graph.flow.state.value.side) return false
+        if (graph.flow.state.value.phase == Phase.HOLDING) return false
         if (consumedByClosedWindow()) return false
         if (!graph.flow.pickWall()) return false
         anchor = graph.flow.holdPoint?.let { scene.toScene(it) }
@@ -242,8 +245,9 @@ internal fun route(graph: Graph, target: BoardTarget?) {
     when (target) {
         is BoardTarget.Cell -> flow.tapCell(target.cell)
         is BoardTarget.Pawn -> flow.tapPawn(target.side)
-        BoardTarget.Rail -> flow.tapRail()
-        BoardTarget.Ghost -> flow.toggleOrient()
+        is BoardTarget.Rail -> flow.tapRail(target.side)
+        is BoardTarget.Slot -> flow.tapSlot(target.c, target.r)
+        BoardTarget.Ghost -> flow.tapGhost()
         null -> flow.tapEmpty()
     }
 }
@@ -283,20 +287,23 @@ private fun SeatCard(st: PlayState, graph: Graph) {
                 Text(stringResource(R.string.open_panel), fontSize = 14.sp)
             }
             else -> {
-                val walls = stringResource(R.string.walls_count, st.wallsLeft[Q.YOU], st.wallsLeft[Q.AI])
+                val skin = graph.settings.settings.collectAsStateWithLifecycle().value.skin
+                val walls = if (st.config?.local == true) stringResource(R.string.walls_count_local, st.wallsLeft[Q.YOU], st.wallsLeft[Q.AI]) else stringResource(R.string.walls_count, st.wallsLeft[Q.YOU], st.wallsLeft[Q.AI])
                 val fail = st.hold?.fail ?: st.reject?.fail
                 val red = fail != null
                 val text = when {
                     st.config == null || st.phase == Phase.SETUP || st.phase == Phase.LOADING -> stringResource(R.string.seat_ready)
                     fail != null -> wallFailText(fail)
+                    st.config.local && st.winner != null -> stringResource(R.string.seat_side_won, sideName(st.winner, skin))
                     st.winner == Q.YOU -> stringResource(R.string.seat_you_won)
                     st.winner == Q.AI -> stringResource(R.string.seat_they_won)
+                    st.config.local -> stringResource(R.string.seat_side_turn, sideName(st.side, skin)) + " · " + walls
                     st.humansTurn -> stringResource(R.string.seat_you) + " · " + walls
                     else -> stringResource(R.string.seat_them) + " · " + walls
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 10.dp)) {
                     if (st.config != null && st.winner == null && !red && st.phase != Phase.SETUP) {
-                        Box(Modifier.size(14.dp).clip(CircleShape).background(if (st.side == Q.YOU) QColors.Ivory else QColors.Cinnabar).border(1.5.dp, QColors.Ink, CircleShape))
+                        Box(Modifier.size(14.dp).clip(CircleShape).background(sideColor(st.side, skin)).border(1.5.dp, QColors.Ink, CircleShape))
                     }
                     tagText(text, "seat/line", if (text.length > 34) 15 else 17, color = if (red) QColors.ErrorText else QColors.Ink)
                 }

@@ -2,7 +2,9 @@ package io.embodit.quoridorwalls.ui.board
 
 import android.os.SystemClock
 import android.util.Log
+import com.pico.spatial.core.ecs.CollisionComponent
 import com.pico.spatial.core.ecs.DirectionalLightComponent
+import com.pico.spatial.core.ecs.EnvironmentLightingSettingsComponent
 import com.pico.spatial.core.ecs.Entity
 import com.pico.spatial.core.ecs.ModelComponent
 import com.pico.spatial.core.ecs.ModelEntity
@@ -52,6 +54,11 @@ internal class Models(val sets: Map<Skin, SkinModels>)
  * ```
  */
 internal class BoardScene(private val flow: GameFlow) {
+    companion object {
+        /** Key light intensity (v0.1.4: a soft fill; the environment light does the rest). */
+        const val KEY_LIGHT = 0.45f
+    }
+
     val root: Entity = Entity().apply { setName("root") }
     private val sceneRoot = Entity().apply { setName("sceneRoot") }
     private val tiltRoot = Entity().apply { setName("tiltRoot") }
@@ -72,6 +79,12 @@ internal class BoardScene(private val flow: GameFlow) {
     private val pawns = ArrayList<Entity>()
     private val pawnModels = ArrayList<Map<Skin, Entity>>()
     private val gazePlates = ArrayList<ModelEntity>()
+    /** 64 slot targets "slot:c:r" (click box over the crossing + a 5 mm stud), enabled only with a wall in hand. */
+    private val slots = ArrayList<Entity>()
+    private val slotStuds = ArrayList<ModelEntity>()
+    private var slotsOn: Boolean? = null
+    /** Per wall: true while its click box is the tray box (lying in a tray); placed walls get no collider. */
+    private val wallHit = List(2) { BooleanArray(Q.WALLS) { true } }
 
     // marks (all float MARK_UP above their cell; each has a light column)
     private class Mark(val e: ModelEntity, val halo: ModelEntity?, val column: ModelEntity)
@@ -190,7 +203,8 @@ internal class BoardScene(private val flow: GameFlow) {
             boards[skin] = clone(set.board, "${BoardNames.BOARD}:${skin.name}").also { tiltRoot.addChild(it) }
             stands[skin] = clone(set.stand, "stand:${skin.name}").also { sceneRoot.addChild(it) }
         }
-        tiltRoot.addChild(Entity().apply { setName(BoardNames.RAIL); place(this, V3(0f, Layout.BOARD_T + 0.012f, -Layout.RAIL / 2)); GazeTargets.install(this, r.railShape, r.physics) })
+        // v0.1.4: one tray block per side in the front margin (click area behind its lying walls; the walls are on top)
+        for (side in 0..1) tiltRoot.addChild(Entity().apply { setName(BoardNames.rail(side)); place(this, lay.trayCentre(side)); GazeTargets.install(this, r.railShape, r.physics) })
         lap(); kotlinx.coroutines.delay(16)
         // GazeTargets (board-input 通用模式): a holder per cell = whole-cell click area, a visible gaze plate as child
         fun cellRange(range: IntRange) {
@@ -204,7 +218,8 @@ internal class BoardScene(private val flow: GameFlow) {
         lap(); kotlinx.coroutines.delay(16)
         for (side in 0..1) repeat(Q.WALLS) { k ->
             val holder = Entity().apply { setName(BoardNames.wall(side, k)) }
-            GazeTargets.install(holder, r.wallShapeH, r.physics)
+            // the click box is one ring bigger than the wall (§15.6); it is taken off once the wall stands on the board
+            GazeTargets.install(holder, r.wallHitShape, r.physics)
             val kids = models.sets.mapValues { (skin, set) -> clone(set.wall, BoardNames.wallModel(side, k, skin.name)).also { holder.addChild(it) } }
             tiltRoot.addChild(holder)
             walls[side] += holder
@@ -221,6 +236,20 @@ internal class BoardScene(private val flow: GameFlow) {
             pawns += holder
             pawnModels += kids
         }
+        // slot targets: a whole-pitch click box 6 mm above each crossing (over the cell boxes) with a 5 mm stud on the
+        // crossing that carries the system highlight (README 通用模式); off until a wall is in hand
+        for (rr in 0..7) for (c in 0..7) {
+            val h = Entity().apply { setName(BoardNames.slot(c, rr)) }
+            place(h, lay.slotCentre(c, rr, 0.006f))
+            GazeTargets.install(h, r.slotShape, r.physics)
+            val stud = ModelEntity(r.stud, r.studMat.getValue(settings.skin)).apply { setName(BoardNames.slotMarker(c, rr)) }
+            h.addChild(stud)
+            place(stud, V3(0f, -0.006f - 0.0035f + Layout.STUD_H / 2, 0f))
+            h.enabled = false
+            tiltRoot.addChild(h)
+            slots += h; slotStuds += stud
+        }
+        lap(); kotlinx.coroutines.delay(16)
         val ms = r.marks.getValue(settings.skin)
         repeat(5) { i -> dots += markOf(r.dot, ms.body, null, r, "dot:$i"); jumps += markOf(r.ringJump, ms.body, r.dot, r, "jump:$i") }
         hintMark = markOf(r.ringMark, ms.hint, null, r, "hintMark")
@@ -232,7 +261,7 @@ internal class BoardScene(private val flow: GameFlow) {
         for (side in 0..1) repeat(24) { i -> bands[side] += flat(r.unitPlane, if (side == Q.YOU) r.bandYou.getValue(settings.skin) else r.bandAi.getValue(settings.skin), "band:$side:$i") }
         repeat(64) { i -> slotGlows += flat(r.unitPlane, r.slotGlow, "slotGlow:$i") }
         railGlow = flat(r.unitPlane, r.amberSoft, "railGlow")
-        ghost = flat(r.ghost, r.ghostOk, BoardNames.GHOST).also { GazeTargets.install(it, r.wallShapeH, r.physics) }
+        ghost = flat(r.ghost, r.ghostOk, BoardNames.GHOST).also { GazeTargets.install(it, r.ghostShape, r.physics) }
         hintGhost = flat(r.ghost, r.ghostHint, "hintGhost")
         flash = flat(r.flash, r.redFlash, "flash")
         seatCard?.let { sceneRoot.addChild(it); place(it, Layout.SEAT_CENTRE) }
@@ -256,6 +285,7 @@ internal class BoardScene(private val flow: GameFlow) {
         wallModels.forEach { side -> side.forEach { m -> m.forEach { (s, e) -> e.enabled = s == skin } } }
         pawnModels.forEach { m -> m.forEach { (s, e) -> e.enabled = s == skin } }
         gazePlates.forEach { it.components[ModelComponent::class.java]?.materials?.set(0, r.gaze.getValue(skin)) }
+        slotStuds.forEach { it.components[ModelComponent::class.java]?.materials?.set(0, r.studMat.getValue(skin)) }
         bands[Q.YOU].forEach { it.components[ModelComponent::class.java]?.materials?.set(0, r.bandYou.getValue(skin)) }
         bands[Q.AI].forEach { it.components[ModelComponent::class.java]?.materials?.set(0, r.bandAi.getValue(skin)) }
         // marks follow the skin too (QA q3-1)
@@ -270,12 +300,25 @@ internal class BoardScene(private val flow: GameFlow) {
     private fun buildLight() {
         runCatching {
             val light = Entity().apply { setName("keyLight") }
-            // B24: a moderate warm key light from the front left, above (the design's render light (-0.45, 1, 0.55)), with shadows.
-            light.components.set(DirectionalLightComponent(Color4(1f, 0.95f, 0.88f, 1f), 0.85f, true))
+            // B24 / §15.6 (v0.1.4 真机「会受光照影响」): the board's PBR materials take the system environment light (IBL) at
+            // full scale on the whole subtree; the app's own key light is only a soft fill for the contact shadows (0.85 ->
+            // 0.45), so the same board looks alike in a bright VR home and a dim MR room.
+            runCatching { root.components.set(EnvironmentLightingSettingsComponent(1.0f)) }.onFailure { Log.w(TAG, "ENV LIGHT unavailable: $it") }
+            light.components.set(DirectionalLightComponent(Color4(1f, 0.97f, 0.92f, 1f), KEY_LIGHT, true))
             val q = Quat(Vector3(0f, 1f, 0f), (-30 * PI / 180).toFloat()).times(Quat(Vector3(1f, 0f, 0f), (-55 * PI / 180).toFloat()))
             light.transform().setQuaternion(q)
             root.addChild(light)
         }.onFailure { Log.w(TAG, "LIGHT unavailable: $it") }
+    }
+
+    /**
+     * Debug `light <env> <key>` (§15.6 亮 / 暗环境对比): scales the system environment light on the board and sets the key
+     * light, to see how much the PBR board changes between a bright and a dim surrounding.
+     */
+    fun setLighting(env: Float, key: Float) {
+        runCatching { root.components.set(EnvironmentLightingSettingsComponent(env)) }.onFailure { Log.w(TAG, "ENV LIGHT $it") }
+        findByName(root, "keyLight")?.components?.get(DirectionalLightComponent::class.java)?.intensity = key
+        Log.i(TAG, "LIGHT env=$env key=$key")
     }
 
     fun apply(next: PlayState, s: Settings) {
@@ -317,7 +360,10 @@ internal class BoardScene(private val flow: GameFlow) {
         val pos = st.pos
         val human = st.humansTurn
         val hovered = hover.current(now)
-        val railHover = hovered == BoardNames.RAIL && human && st.phase in setOf(Phase.IDLE, Phase.SELECTED) && pos.left[Q.YOU] > 0
+        val me = st.side
+        val railHover = hovered == BoardNames.rail(me) && human && st.phase in setOf(Phase.IDLE, Phase.SELECTED) && pos.left[me] > 0
+        val holding = st.phase == Phase.HOLDING && st.hold != null
+        if (slotsOn != holding) { slotsOn = holding; slots.forEach { it.enabled = holding }; Log.i(TAG, "SLOTS ${if (holding) "on" else "off"}") }
 
         // ---------------- walls
         val anim = st.anim
@@ -334,13 +380,13 @@ internal class BoardScene(private val flow: GameFlow) {
                 val rej = st.reject
                 val back = st.back
                 when {
-                    side == Q.YOU && hold != null && k == hold.railK -> {
+                    side == me && hold != null && k == hold.railK -> {
                         // design walls: once the pointer is over the board only the ghost shows; the solid wall hides
                         visible = hold.slot == null
                         shown = flow.holdPoint ?: lay.railCentre(side, k)
                         q = if (hold.orient == Orient.H) qH else qV
                     }
-                    side == Q.YOU && rej != null && k == rej.railK -> {
+                    side == me && rej != null && k == rej.railK -> {
                         val e2 = elapsed(rej.startedAt)
                         val above = lay.wallCentre(rej.wall, sunk = false)
                         if (reduced || e2 >= GameFlow.FLASH_MS) {
@@ -349,7 +395,7 @@ internal class BoardScene(private val flow: GameFlow) {
                             if (t < 0.5f) q = if (rej.wall.o == Orient.H) qH else qV
                         } else { shown = above; q = if (rej.wall.o == Orient.H) qH else qV }
                     }
-                    side == Q.YOU && back != null && k == back.railK && inRail -> {
+                    side == me && back != null && k == back.railK && inRail -> {
                         val t = if (reduced) 1f else (elapsed(back.startedAt).toFloat() / GameFlow.RETURN_MS).coerceIn(0f, 1f)
                         shown = lay.arc(back.fromHand, target, lay.easeOut(t), 0.02f)
                         if (t < 0.4f) q = qH
@@ -372,19 +418,27 @@ internal class BoardScene(private val flow: GameFlow) {
                         }
                     }
                     // rail hover: the wall a press would lift rises 3 mm (design input.hover ②)
-                    side == Q.YOU && railHover && k == pos.left[Q.YOU] - 1 -> shown = target + V3(0f, 0.003f, 0f)
+                    side == me && railHover && k == pos.left[me] - 1 -> shown = target + V3(0f, 0.003f, 0f)
                 }
                 val g = wallGlide[side][k]
                 val at = if (shown != null) { pin(g, target, shown); shown } else glide(g, target, now, reduced)
                 place(e, at)
                 e.transform().setQuaternion(q)
                 e.enabled = visible
+                // a wall standing on the board is not a target: take its click box off (it would steal taps from the
+                // cells beside it); give it back when it returns to the tray (undo)
+                val wantHit = inRail
+                if (wallHit[side][k] != wantHit) {
+                    wallHit[side][k] = wantHit
+                    if (wantHit) e.components.set(CollisionComponent(collisionShape = listOf(r.wallHitShape), physicsMaterial = r.physics))
+                    else e.components.remove(CollisionComponent::class.java)
+                }
             }
         }
         railGlow?.let { glow ->
             glow.enabled = railHover
             if (railHover) {
-                val c = lay.railCentre(Q.YOU, pos.left[Q.YOU] - 1)
+                val c = lay.railCentre(me, pos.left[me] - 1)
                 place(glow, V3(c.x, Layout.BOARD_T + 0.0004f, c.z))
                 glow.transform().setQuaternion(qPlane)
                 glow.transform().setScaleVector(Vector3(Layout.WALL_L + 0.008f, Layout.WALL_H + 0.008f, 1f))
@@ -526,7 +580,12 @@ internal class BoardScene(private val flow: GameFlow) {
         return when {
             what.startsWith("sq:") -> listOfNotNull(named(BoardNames.marker(what.removePrefix("sq:").toInt())), named(what))
             what.startsWith("pawn:") -> listOfNotNull(named(what)?.let { deepest(it) }, named(what))
-            what == "rail" -> listOfNotNull(walls[Q.YOU].getOrNull(state.pos.left[Q.YOU] - 1)?.let { deepest(it) }, named(BoardNames.RAIL))
+            what == "rail" || what.startsWith("rail:") -> {
+                val side = what.removePrefix("rail").removePrefix(":").toIntOrNull() ?: state.side
+                listOfNotNull(walls[side].getOrNull(state.pos.left[side] - 1)?.let { deepest(it) }, named(BoardNames.rail(side)))
+            }
+            what.startsWith("slot:") -> listOfNotNull(named("mk:$what:0"), named(what))
+            what == "ghost" -> listOfNotNull(ghost)
             else -> emptyList()
         }
     }

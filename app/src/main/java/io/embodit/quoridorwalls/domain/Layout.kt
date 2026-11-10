@@ -40,17 +40,19 @@ data class Box3(val min: V3, val max: V3) {
 }
 
 /**
- * Every metre of the volume (design v0.1.7 spatialLayout, QA q1-1 geometry). Scene space = the design's volume space:
- * origin at the volume centre, +X right, +Y up, +Z toward the user; volume 0.66 x 0.36 x 0.62 (floor y -0.18, front face
- * z +0.31). The board content sits 5 cm left of the volume centre (contentRoot x -0.05) so the control window that the
+ * Every metre of the volume (design v0.1.7 spatialLayout, QA q1-1 geometry; v0.1.4 真机返工: both wall trays moved to
+ * the front margin, the board lifted 4.5 cm on its stand so the seat card no longer covers them, volume 0.44 tall).
+ * Scene space = the design's volume space: +X right, +Y up, +Z toward the user, the floor at y -0.18 and the volume centre
+ * at y [VOL_CENTRE_Y] (volume 0.66 x 0.44 x 0.62, front face z +0.31). The board content sits 5 cm left of the volume centre (contentRoot x -0.05) so the control window that the
  * system places to the right moves away from the board.
  *
- * The board hangs from tiltRoot at its near-bottom edge (-0.05, -0.18, +0.27), tipped 34° about X (far edge up). Board-local
+ * The board hangs from tiltRoot at its near-bottom edge (-0.05, -0.135, +0.27), tipped 34° about X (far edge up). Board-local
  * space: origin on that edge, +Y the board normal, -Z along the board toward the far edge, so a point on the top surface
- * at distance s from the near edge is local (x, BOARD_T, -s) (design: near top edge y -0.1593, z +0.2840).
+ * at distance s from the near edge is local (x, BOARD_T, -s).
  *
- *   rails   near rail s 0..0.04 (your 10 walls), far rail s 0.49..0.53: walls lying flat (9.6 x 1.2 x 0.6), 2 rows x 5
- *   grid    9 x 9 cells, pitch 5 cm, row r centre s = 0.04 + (r + 0.5) x 0.05, column x = (c - 4) x 0.05
+ *   trays   front margin s 0..0.12: near pawn's 10 walls on the left (x -0.12), far pawn's on the right (x +0.12), each
+ *           2 columns x 5 rows of lying walls (9.6 x 1.2 x 0.6), 1.2 cm between columns, 1.0 cm between rows
+ *   grid    9 x 9 cells, pitch 5 cm, row r centre s = NEAR + (r + 0.5) x 0.05, column x = (c - 4) x 0.05; far frame 2 cm
  *   walls   9.6 x 0.6 x 1.2 cm, centred on crossing (c, r), sunk 2 mm: 1.0 cm shows above the cells
  *   pawns   squat turned pawn dia 3.2 x 2.4 cm; selection does not lift (a ring at its foot instead)
  *   marks   every landing / hint / hover mark floats 1.2 cm above its cell on a thin light column
@@ -60,9 +62,13 @@ class Layout {
         const val PITCH = 0.05f
         const val CELL = 0.042f
         const val BOARD_W = 0.49f
-        const val BOARD_D = 0.53f
+        /** Front margin (the two wall trays) and far frame. */
+        const val NEAR = 0.12f
+        const val FAR = 0.02f
+        const val BOARD_D = NEAR + 9 * PITCH + FAR
         const val BOARD_T = 0.025f
-        const val RAIL = 0.04f
+        /** Depth of the tray margin (kept as RAIL for the old name). */
+        const val RAIL = NEAR
         const val CELL_RAISE = 0.0015f
         const val GROOVE_SINK = 0.002f
         /** Cell faces (local y). */
@@ -72,6 +78,9 @@ class Layout {
         const val WALL_H = 0.012f
         /** A standing wall's bottom: 2 mm into the groove below the cell faces (its top is 1.0 cm above them). */
         const val WALL_BASE = CELL_TOP - GROOVE_SINK
+        /** Slot stud on a crossing: dia 5 mm, 1.5 mm proud of the cell faces (README 标记尺寸 <= 5 mm). */
+        const val STUD_D = 0.005f
+        const val STUD_H = 0.005f   // from the groove floor (3.5 mm below the cell faces) to 1.5 mm above them
         const val PAWN_D = 0.032f
         const val PAWN_H = 0.024f
         const val LIFT_SELECT = 0f
@@ -84,8 +93,13 @@ class Layout {
         const val HOLD_UP = 0.02f
         const val TILT_DEG = 34f
         const val CONTENT_X = -0.05f
-        val VOLUME = V3(0.66f, 0.36f, 0.62f)
-        val PIVOT = V3(CONTENT_X, -0.18f, 0.27f)
+        val VOLUME = V3(0.66f, 0.44f, 0.62f)
+        const val FLOOR_Y = -0.18f
+        /** The volume centre in scene space (the floor stays at -0.18). */
+        const val VOL_CENTRE_Y = FLOOR_Y + 0.22f
+        /** The board's near edge sits this high above the floor so the seat card in front never covers the trays. */
+        const val BOARD_LIFT = 0.045f
+        val PIVOT = V3(CONTENT_X, FLOOR_Y + BOARD_LIFT, 0.27f)
         /** Seat card (AttachmentPanel, design coordinates.seatCard): 0.26 x 0.035 m standing on the floor at z +0.31, centred on the board. */
         val SEAT_SIZE = V3(0.26f, 0.035f, 0f)
         val SEAT_CENTRE = V3(CONTENT_X, -0.18f + 0.0175f, 0.31f)
@@ -99,8 +113,15 @@ class Layout {
         const val GRID_MARGIN = 0.012f
         /** Drag gain: pointer travel in metres -> travel of the wall in hand on the board. */
         const val DRAG_GAIN = 1.0f
-        /** Rail rows (s of the two rows of five lying walls, from the rail's own edge). */
-        val RAIL_ROWS = floatArrayOf(0.028f, 0.012f)
+        /** Trays: block centre x per side, column offset, first row s and row pitch (1.0 cm between lying walls). */
+        val TRAY_X = floatArrayOf(-0.12f, 0.12f)
+        const val TRAY_COL = WALL_L / 2 + 0.006f
+        const val TRAY_S0 = 0.014f
+        const val TRAY_PITCH = 0.022f
+        /** A tray block (both columns, five rows) with a 6 mm margin: the per-side "rail:<side>" click area. */
+        val TRAY_SIZE = V3(2 * WALL_L + 0.012f + 0.012f, 0f, 4 * TRAY_PITCH + WALL_H + 0.012f)
+        /** Click box of a lying tray wall / the ghost: one ring bigger than the wall (D50 补 §15.6: >= 2 cm across). */
+        val WALL_HIT = V3(WALL_L + 0.008f, 0.020f, 0.020f)
     }
 
     val theta: Float = Math.toRadians(TILT_DEG.toDouble()).toFloat()
@@ -118,9 +139,9 @@ class Layout {
     fun surface(x: Float, s: Float, up: Float = 0f): V3 = V3(x, BOARD_T + up, -s)
 
     fun cellX(cell: Int) = (Q.col(cell) - 4) * PITCH
-    fun cellS(cell: Int) = 0.04f + (Q.row(cell) + 0.5f) * PITCH
+    fun cellS(cell: Int) = NEAR + (Q.row(cell) + 0.5f) * PITCH
     fun crossX(c: Int) = (c - 3.5f) * PITCH
-    fun crossS(r: Int) = 0.04f + (r + 1) * PITCH
+    fun crossS(r: Int) = NEAR + (r + 1) * PITCH
 
     /** Local centre of a cell face. */
     fun cellTop(cell: Int, up: Float = 0f): V3 = V3(cellX(cell), CELL_TOP + up, -cellS(cell))
@@ -135,15 +156,21 @@ class Layout {
     fun wallCentre(w: Wall, sunk: Boolean = true): V3 = V3(crossX(w.c), (if (sunk) WALL_BASE else CELL_TOP + HOLD_UP) + WALL_H / 2, -crossS(w.r))
 
     /**
-     * Local centre of rail slot [k] (0..9) of [side]: lying flat (9.6 long, 1.2 wide along s, 0.6 high), two rows of five;
-     * slots 0..4 are the row nearer the board edge, 5..9 the row nearer the grid (taken first).
+     * Local centre of tray slot [k] (0..9) of [side]: lying flat (9.6 long along x, 1.2 wide along s, 0.6 high), in the
+     * front margin, side 0 left / side 1 right; row k / 2 (0 = nearest the board edge), column k % 2. The highest k (taken
+     * first) lies nearest the grid.
      */
     fun railCentre(side: Int, k: Int): V3 {
-        val row = if (k >= 5) 0 else 1
-        val i = k % 5
-        val s = if (side == Q.YOU) RAIL_ROWS[row] else BOARD_D - RAIL_ROWS[row]
-        return V3((i - 2) * 0.10f, BOARD_T + WALL_T / 2, -s)
+        val row = k / 2
+        val col = if (k % 2 == 0) -1f else 1f
+        return V3(TRAY_X[side] + col * TRAY_COL, BOARD_T + WALL_T / 2, -(TRAY_S0 + row * TRAY_PITCH))
     }
+
+    /** Centre of the tray block of [side] on the frame top (the "rail:<side>" holder). */
+    fun trayCentre(side: Int): V3 = V3(TRAY_X[side], BOARD_T + 0.004f, -(TRAY_S0 + 2 * TRAY_PITCH))
+
+    /** Local centre of the slot target at crossing (c, r): a click box over the crossing, its marker stud on the groove. */
+    fun slotCentre(c: Int, r: Int, up: Float = 0f): V3 = V3(crossX(c), CELL_TOP + up, -crossS(r))
 
     /** A flight between two points at time fraction [t]: a parabola peaking [arc] above the chord (local up). */
     fun arc(a: V3, b: V3, t: Float, arc: Float): V3 {
@@ -164,17 +191,17 @@ class Layout {
     fun boardXS(scene: V3): Pair<Float, Float> { val l = toLocal(scene); return l.x to -l.z }
 
     fun onGrid(x: Float, s: Float): Boolean =
-        abs(x) <= 4.5f * PITCH + GRID_MARGIN && s >= 0.04f - GRID_MARGIN && s <= 0.04f + 9 * PITCH + GRID_MARGIN
+        abs(x) <= 4.5f * PITCH + GRID_MARGIN && s >= NEAR - GRID_MARGIN && s <= NEAR + 9 * PITCH + GRID_MARGIN
 
     /** The nearest crossing (design input.slotAt), clamped to 0..7. */
     fun nearestCross(x: Float, s: Float): Pair<Int, Int> =
-        ((x / PITCH + 3.5f).roundToInt().coerceIn(0, 7)) to (((s - 0.04f) / PITCH - 1f).roundToInt().coerceIn(0, 7))
+        ((x / PITCH + 3.5f).roundToInt().coerceIn(0, 7)) to (((s - NEAR) / PITCH - 1f).roundToInt().coerceIn(0, 7))
 
-    /** The book-stand under the board (design coordinates.board): two side plates, triangles in the y-z plane. */
+    /** The book-stand under the board: two side plates in the y-z plane (front edge up to the lifted near edge). */
     fun standPlates(): List<Pair<Float, List<V3>>> {
         val far = toScene(V3(0f, 0f, -BOARD_D))
         val xs = listOf(CONTENT_X - BOARD_W / 2 + 0.03f, CONTENT_X + BOARD_W / 2 - 0.03f)
-        return xs.map { x -> x to listOf(V3(x, -0.18f, PIVOT.z - 0.01f), V3(x, -0.18f, far.z + 0.005f), V3(x, far.y - 0.006f, far.z + 0.005f)) }
+        return xs.map { x -> x to listOf(V3(x, FLOOR_Y, PIVOT.z - 0.01f), V3(x, FLOOR_Y, far.z + 0.005f), V3(x, far.y - 0.006f, far.z + 0.005f), V3(x, PIVOT.y - 0.004f, PIVOT.z - 0.01f)) }
     }
 
     // ------------------------------------------------------------------ occlusion (design occlusionRule, occlusion_check.py)
@@ -242,11 +269,11 @@ class Layout {
         val ye4 = (1.9 * kotlin.math.tan(Math.toRadians(4.0))).toFloat()
         for ((ye, tag) in listOf(0f to "reset-level", ye4 to "reset-4deg")) for (d in listOf(1.2f, 1.9f, 2.5f)) for (az in listOf(0, -30, 30)) {
             val a = Math.toRadians(az.toDouble())
-            out["$tag d$d az$az"] = V3((d * sin(a)).toFloat(), ye, (d * cos(a)).toFloat())
+            out["$tag d$d az$az"] = V3((d * sin(a)).toFloat(), VOL_CENTRE_Y + ye, (d * cos(a)).toFloat())
         }
         for (az in listOf(0, -30, 30)) {
             val a = Math.toRadians(az.toDouble())
-            out["reset-4deg walk-in d0.7 az$az"] = V3((0.7 * sin(a)).toFloat(), ye4, (0.7 * cos(a)).toFloat())
+            out["reset-4deg walk-in d0.7 az$az"] = V3((0.7 * sin(a)).toFloat(), VOL_CENTRE_Y + ye4, (0.7 * cos(a)).toFloat())
         }
         for ((n, hh) in listOf("E0" to 0.40f, "E1" to 0.50f, "E2" to 0.88f)) {
             val y = -0.18f + hh
@@ -266,13 +293,13 @@ class Layout {
         val inset = 0.026f
         val w = 520 * DP_M; val h = 400 * DP_M
         return listOf(
-            WindowArea("design 0.45x0.35", left + inset, left + 0.45f - inset, -0.175f + inset, 0.175f - inset),
-            WindowArea("520x400dp", left + inset, left + w - inset, -h / 2 + inset, h / 2 - inset),
+            WindowArea("design 0.45x0.35", left + inset, left + 0.45f - inset, VOL_CENTRE_Y - 0.175f + inset, VOL_CENTRE_Y + 0.175f - inset),
+            WindowArea("520x400dp", left + inset, left + w - inset, VOL_CENTRE_Y - h / 2 + inset, VOL_CENTRE_Y + h / 2 - inset),
         )
     }
 
     /** The whole window as an occluder of the board (D41 reverse check). */
-    fun windowBox(): Box3 = Box3(V3(VOLUME.x / 2 + 0.05f, -0.175f, -0.003f), V3(VOLUME.x / 2 + 0.50f, 0.175f, 0.003f))
+    fun windowBox(): Box3 = Box3(V3(VOLUME.x / 2 + 0.05f, VOL_CENTRE_Y - 0.175f, -0.003f), V3(VOLUME.x / 2 + 0.50f, VOL_CENTRE_Y + 0.175f, 0.003f))
 }
 
 /**

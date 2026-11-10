@@ -313,4 +313,96 @@ class FlowTest {
         h2.flow.start(); runCurrent()
         assertTrue(h2.st.welcome); assertFalse(h2.st.restored)
     }
+
+    // ------------------------------------------------------------------ v0.1.4 真机返工: walls by taps, two players on one headset
+
+    /** 「墙点不到」: a tap on your tray takes a wall (silently), a tap on a slot previews it, a second tap sets it. */
+    @Test fun aTapOnTheTrayPicksATapOnASlotPreviewsASecondTapSets() = runTest {
+        val h = Harness(this); game(h, "you=e3 ai=e7 side=0")
+        h.flow.tapRail(Q.YOU)
+        assertEquals(Phase.HOLDING, h.st.phase)
+        assertTrue(h.st.hold!!.byTap)
+        assertFalse("picking is silent (D51 补)", Sound.GRAB in h.sounds)
+        h.flow.tapSlot(4, 5)   // e6
+        assertEquals(w("e6h"), h.st.hold!!.slot)
+        assertEquals(Phase.HOLDING, h.st.phase)   // first tap = preview only
+        assertEquals(10, h.st.pos.left[Q.YOU])
+        h.flow.tapSlot(2, 2)   // another slot moves the ghost
+        assertEquals(w("c3h"), h.st.hold!!.slot)
+        h.flow.toggleOrient()
+        assertEquals(w("c3v"), h.st.hold!!.slot)
+        h.flow.tapSlot(2, 2)   // same slot again = set
+        assertEquals(Phase.ANIM, h.st.phase)
+        assertEquals(9, h.st.pos.left[Q.YOU])
+        assertTrue(h.st.pos.walls.any { it.wall == w("c3v") })
+    }
+
+    @Test fun theGhostAndThePlaceButtonSetTheTrayPutsBack() = runTest {
+        val h = Harness(this); game(h, "you=e3 ai=e7 side=0")
+        h.flow.tapRail(Q.YOU)
+        h.flow.placeHeld()   // no slot yet: says where to tap, keeps the wall in hand
+        assertEquals(AlertKind.PLACE_NEEDS_SLOT, h.st.alert?.kind)
+        assertEquals(Phase.HOLDING, h.st.phase)
+        h.flow.tapCell(c("a5"))   // a cell with a wall in hand: says to tap a dot
+        assertEquals(AlertKind.TAP_SLOT, h.st.alert?.kind)
+        h.flow.tapRail(Q.YOU)   // the tray again: the wall goes back
+        assertEquals(Phase.IDLE, h.st.phase)
+        assertEquals(10, h.st.pos.left[Q.YOU])
+        h.flow.tapRail(Q.YOU); h.flow.tapSlot(4, 5)
+        h.flow.tapGhost()
+        assertEquals(Phase.ANIM, h.st.phase)
+        assertEquals(9, h.st.pos.left[Q.YOU])
+    }
+
+    @Test fun aTappedRedSlotBouncesAndTheOtherTrayIsRefused() = runTest {
+        val h = Harness(this); game(h, "you=e2 ai=e9 walls=d8v1.e8h0 left=9,9 side=0")
+        h.flow.tapRail(Q.AI)
+        assertEquals(AlertKind.THEIR_WALLS, h.st.alert?.kind); assertEquals(Phase.IDLE, h.st.phase)
+        h.flow.tapRail(Q.YOU); h.flow.tapSlot(5, 7)   // f8
+        h.flow.toggleOrient()
+        assertEquals(WallFail.BLOCKS_THEM, h.st.hold!!.fail)
+        h.flow.tapSlot(5, 7)
+        assertEquals(Phase.REJECTED, h.st.phase)
+        settle(GameFlow.FLASH_MS + GameFlow.FLY_BACK_MS + 10)
+        assertEquals(9, h.st.pos.left[Q.YOU])
+    }
+
+    @Test fun yourPawnWithAWallInHandPutsItBackAndSelects() = runTest {
+        val h = Harness(this); game(h, "you=e3 ai=e7 side=0")
+        h.flow.tapRail(Q.YOU); h.flow.tapSlot(4, 5)
+        h.flow.tapPawn(Q.YOU)
+        assertEquals(Phase.SELECTED, h.st.phase); assertNull(h.st.hold)
+    }
+
+    /** 「加个自己和自己下的模式」: both sides are moved by the same person, no AI turn, walls from each side's own tray. */
+    @Test fun twoPlayersOnOneHeadsetMoveBothSides() = runTest {
+        val h = Harness(this)
+        h.flow.newGame(GameSetup(Engine.EASY, FirstPick.ME, Mode.LOCAL)); runCurrent()
+        assertTrue(h.st.config!!.local)
+        assertFalse(h.st.firstGame)
+        h.flow.tapCell(c("e2")); settle(GameFlow.STEP_MS + 10)
+        assertEquals(Q.AI, h.st.side)
+        assertEquals("the far side waits for a person, not the engine", Phase.IDLE, h.st.phase)
+        assertTrue(h.st.humansTurn)
+        h.flow.tapRail(Q.YOU)   // the near tray on the far side's turn: refused
+        assertEquals(AlertKind.THEIR_WALLS, h.st.alert?.kind)
+        h.flow.tapRail(Q.AI); h.flow.tapSlot(4, 5); h.flow.tapSlot(4, 5)
+        assertEquals(9, h.st.pos.left[Q.AI]); assertEquals(10, h.st.pos.left[Q.YOU])
+        settle(GameFlow.SINK_MS + 10)
+        assertEquals(Q.YOU, h.st.side); assertEquals(Phase.IDLE, h.st.phase)
+        // undo takes back one move (the far side's wall)
+        h.flow.requestUndo()
+        assertEquals(Q.AI, h.st.side); assertEquals(10, h.st.pos.left[Q.AI])
+        // saved and restored as a two-player game
+        assertEquals(Mode.LOCAL, SaveCodec.decode(SaveCodec.encode(h.store.saved!!))!!.config.mode)
+    }
+
+    @Test fun inTwoPlayersEitherWinPlaysTheWinCue() = runTest {
+        val h = Harness(this)
+        h.flow.newGame(GameConfig(Engine.EASY, Q.AI, Mode.LOCAL)); runCurrent()
+        val (p, _) = SaveCodec.parseSetup("you=e5 ai=e2 side=1"); h.flow.setup(p, Q.AI); runCurrent()
+        h.flow.tapCell(c("e1")); settle()
+        assertEquals(Q.AI, h.st.winner)
+        assertTrue(Sound.WIN in h.sounds); assertFalse(Sound.LOSE in h.sounds)
+    }
 }

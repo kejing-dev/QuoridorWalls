@@ -87,11 +87,13 @@ def wall_classic():
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     mp = fit_pawn(load("modern-pawn-B-3000.glb"))
-    export(solid(mp, (0xFF, 0x6B, 0x57), 0.55), "pawn_modern_you")
+    # v0.1.4 mid-tone board (L* ~57): a pale coral (L* ~93, renders ~76) and the navy keep >= 25 L* off the cells and > 60 apart
+    export(solid(mp, (0xFF, 0xE6, 0xDC), 0.6), "pawn_modern_you")
     export(solid(mp, (0x1E, 0x3A, 0x68), 0.55), "pawn_modern_ai")
     cp = fit_pawn(load("pawn-A-ivory-3000.glb"))
     # v0.1.1 render check: the raw ivory texture rendered at L* 64 against jade cells 35 -> lifted
     export(brighten(cp.copy(), 1.25, 0.8), "pawn_classic_you")
     # v0.1.2 (QA r2 colour advice): a brighter terracotta vermilion so it sits ~25 L* above the darker jade cells
-    export(solid(cp, (0xC5, 0x5C, 0x3D), 0.4), "pawn_classic_ai")
+    # v0.1.4 mid-tone celadon board (L* ~49): back to the design's deep cinnabar #4A120E (L* ~14, renders ~10)
+    export(solid(cp, (0x4A, 0x12, 0x0E), 0.55), "pawn_classic_ai")
     # wall_classic: tools/build_models.py (the flattened Tripo wall-B lost its front-face UVs and rendered flat grey)

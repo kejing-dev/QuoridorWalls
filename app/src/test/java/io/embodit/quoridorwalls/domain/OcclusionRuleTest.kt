@@ -125,10 +125,10 @@ class OcclusionRuleTest {
 
     @Test fun everythingStaysInsideTheVolume() {
         val half = Layout.VOLUME * 0.5f
-        fun inside(p: V3, what: String) = assertTrue("$what $p", abs(p.x) <= half.x + 1e-4f && abs(p.y) <= half.y + 1e-4f && abs(p.z) <= half.z + 1e-4f)
+        fun inside(p: V3, what: String) = assertTrue("$what $p", abs(p.x) <= half.x + 1e-4f && abs(p.y - Layout.VOL_CENTRE_Y) <= half.y + 1e-4f && abs(p.z) <= half.z + 1e-4f)
         for (cell in 0 until Q.CELLS) inside(l.toScene(l.cellTop(cell, Layout.PAWN_H + Layout.LIFT_JUMP)), "jump top ${Q.name(cell)}")
         val top9 = l.toScene(l.cellTop(Q.cell(4, 8), Layout.PAWN_H + Layout.LIFT_JUMP))
-        assertTrue("row 9 jump top ${top9.y}", top9.y < 0.17f)
+        assertTrue("row 9 jump top ${top9.y}", top9.y < Layout.VOL_CENTRE_Y + Layout.VOLUME.y / 2 - 0.01f)
         for (w in Wall.ALL) for (sunk in listOf(true, false)) {
             val b = l.wallBox(w, sunk).box
             for (p in listOf(b.min, b.max, V3(b.min.x, b.max.y, b.min.z), V3(b.max.x, b.max.y, b.max.z))) inside(l.toScene(p), "wall ${w.notation}")
@@ -139,7 +139,9 @@ class OcclusionRuleTest {
         for ((_, tri) in l.standPlates()) for (p in tri) { inside(p, "stand"); assertTrue("stand under the floor", p.y >= -0.18f - 1e-4f) }
         for (p in l.seatCorners()) inside(p, "seat card")
         val near = l.toScene(l.surface(0f, 0f)); val far = l.toScene(l.surface(0f, Layout.BOARD_D))
-        assertEquals(-0.1593f, near.y, 1e-3f); assertEquals(0.2840f, near.z, 1e-3f)
-        assertEquals(0.1371f, far.y, 2e-3f); assertEquals(-0.1554f, far.z, 2e-3f)
+        // v0.1.4: the near edge lifted 4.5 cm above the seat card, the board 0.59 deep
+        assertEquals(-0.1593f + Layout.BOARD_LIFT, near.y, 1e-3f); assertEquals(0.2840f, near.z, 1e-3f)
+        assertTrue("near edge above the seat card", near.y - 0.0207f >= Layout.SEAT_CENTRE.y + Layout.SEAT_SIZE.y / 2)
+        assertTrue("far edge inside", far.y < Layout.VOL_CENTRE_Y + Layout.VOLUME.y / 2 && far.z > -Layout.VOLUME.z / 2)
     }
 }

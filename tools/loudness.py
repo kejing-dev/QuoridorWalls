@@ -14,7 +14,11 @@ SND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
 def load(name):
     with wave.open(os.path.join(SND, name + ".wav")) as w:
         sr = w.getframerate()
-        return sr, [v / 32768 for v in struct.unpack("<%dh" % w.getnframes(), w.readframes(w.getnframes()))]
+        x = [v / 32768 for v in struct.unpack("<%dh" % w.getnframes(), w.readframes(w.getnframes()))]
+    # v0.1.4: the place / jump recordings are 44.1 kHz (five-stones reference); bring them to the 22.05 kHz track
+    if sr == 44100:
+        x = [(x[i] + x[i + 1]) / 2 for i in range(0, len(x) - 1, 2)]; sr = 22050
+    return sr, x
 
 
 def rate(x, r):
@@ -37,8 +41,9 @@ def voiced(x, sr, thr=10 ** (-40 / 20), gap=0.04):
 def main(out):
     rnd = random.Random(5)
     seq = []
-    turn = ["place", "place", "grab", "wall", "band", "place"]
-    order = turn * 4 + ["jump"] + turn + ["grab", "illegal", "bounce"] + turn * 2 + ["place", "win"]
+    # v0.1.4: taking a wall is silent (a tap selection, D51 补), so no "grab" in the track
+    turn = ["place", "place", "wall", "band", "place"]
+    order = turn * 4 + ["jump"] + turn + ["illegal", "bounce"] + turn * 2 + ["place", "win"]
     sr = 22050
     for name in order:
         variants = [n for n in (name, name + "_2", name + "_3") if os.path.exists(os.path.join(SND, n + ".wav"))]

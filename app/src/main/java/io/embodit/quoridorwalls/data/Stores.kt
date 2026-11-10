@@ -3,6 +3,7 @@ package io.embodit.quoridorwalls.data
 import android.content.Context
 import android.util.Log
 import io.embodit.quoridorwalls.domain.FirstPick
+import io.embodit.quoridorwalls.domain.Mode
 import io.embodit.quoridorwalls.domain.GameSetup
 import io.embodit.quoridorwalls.domain.GameStore
 import io.embodit.quoridorwalls.domain.Language
@@ -65,6 +66,7 @@ class SettingsStore(context: Context) {
             .putBoolean("coachDone", s.coachDone)
             .putInt("setupLevel", s.lastSetup.level)
             .putString("setupFirst", s.lastSetup.first.name)
+            .putString("setupMode", s.lastSetup.mode.name)
             .apply()
     }
 
@@ -80,6 +82,7 @@ class SettingsStore(context: Context) {
             lastSetup = GameSetup(
                 level = prefs.getInt("setupLevel", 1).coerceIn(1, 3),
                 first = FirstPick.valueOf(prefs.getString("setupFirst", FirstPick.ME.name)!!),
+                mode = runCatching { Mode.valueOf(prefs.getString("setupMode", Mode.AI.name)!!) }.getOrDefault(Mode.AI),
             ),
         )
     }.getOrElse { Settings() }

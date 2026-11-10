@@ -61,6 +61,7 @@ import io.embodit.quoridorwalls.domain.Engine
 import io.embodit.quoridorwalls.domain.FirstPick
 import io.embodit.quoridorwalls.domain.GameSetup
 import io.embodit.quoridorwalls.domain.Language
+import io.embodit.quoridorwalls.domain.Mode
 import io.embodit.quoridorwalls.domain.Orient
 import io.embodit.quoridorwalls.domain.Phase
 import io.embodit.quoridorwalls.domain.PlayState
@@ -159,6 +160,23 @@ internal fun wallFailText(f: WallFail): String = stringResource(when (f) {
     WallFail.BLOCKS_YOU -> R.string.fail_blocks_you
 })
 
+/** The two sides by their pawn colour (two players on one headset: the status names the side to move). */
+@Composable
+internal fun sideName(side: Int, skin: Skin): String = stringResource(when {
+    skin == Skin.MODERN && side == Q.YOU -> R.string.side_modern_0
+    skin == Skin.MODERN -> R.string.side_modern_1
+    side == Q.YOU -> R.string.side_classic_0
+    else -> R.string.side_classic_1
+})
+
+/** The pawn colour of [side] in [skin] (chips in the window and on the seat card). */
+internal fun sideColor(side: Int, skin: Skin): androidx.compose.ui.graphics.Color = when {
+    skin == Skin.MODERN && side == Q.YOU -> androidx.compose.ui.graphics.Color(0xFFFFE6DC)
+    skin == Skin.MODERN -> androidx.compose.ui.graphics.Color(0xFF1E3A68)
+    side == Q.YOU -> QColors.Ivory
+    else -> androidx.compose.ui.graphics.Color(0xFF4A120E)
+}
+
 // ------------------------------------------------------------------ Game
 
 @Composable
@@ -181,7 +199,7 @@ private fun PlayPage(state: PlayState, settings: Settings, graph: Graph) {
     if (state.phase == Phase.RESULT) { ResultPage(state, graph); return }
     PageColumn {
         TurnHeader(state, settings, graph)
-        StatusCard(state)
+        StatusCard(state, settings.skin)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             // D43 / D13: never a grey-on-grey disabled button; when it can't be used it says why on a press
             SoftButton(stringResource(R.string.btn_undo), null, "play/undo", live = state.canUndo, icon = R.drawable.ic_undo, modifier = Modifier.weight(1f)) {
@@ -192,9 +210,16 @@ private fun PlayPage(state: PlayState, settings: Settings, graph: Graph) {
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OrientButton(state, graph, Modifier.weight(1f))
-            ToggleButton(stringResource(R.string.btn_mute), "play/mute", on = !settings.sound, onClick = { graph.settings.update { it.copy(sound = !it.sound) } }, modifier = Modifier.weight(1f))
-            SecondaryButton(stringResource(R.string.btn_resign), "play/resign", onClick = { flow.requestConfirm(ConfirmKind.RESIGN) }, icon = R.drawable.ic_flag, modifier = Modifier.weight(1f),
-                enabled = state.inGame && state.phase != Phase.ANIM)
+            if (state.phase == Phase.HOLDING && state.hold != null) {
+                // a wall in hand (v0.1.4 two-stage): set the previewed wall, or put it back — the same calls as a second
+                // tap on the slot / a tap on the tray, reachable by eye-hand on the window when the board is hard to hit
+                PrimaryButton(stringResource(R.string.btn_place), "play/place", onClick = { flow.placeHeld() }, modifier = Modifier.weight(1f))
+                SecondaryButton(stringResource(R.string.btn_putback), "play/putback", onClick = { flow.cancelHold("put back button") }, icon = R.drawable.ic_undo, modifier = Modifier.weight(1f))
+            } else {
+                ToggleButton(stringResource(R.string.btn_mute), "play/mute", on = !settings.sound, onClick = { graph.settings.update { it.copy(sound = !it.sound) } }, modifier = Modifier.weight(1f))
+                SecondaryButton(stringResource(R.string.btn_resign), "play/resign", onClick = { flow.requestConfirm(ConfirmKind.RESIGN) }, icon = R.drawable.ic_flag, modifier = Modifier.weight(1f),
+                    enabled = state.inGame && state.phase != Phase.ANIM)
+            }
         }
         WallsRow(state)
     }
@@ -206,23 +231,24 @@ private fun TurnHeader(state: PlayState, settings: Settings, graph: Graph) {
     Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
         val cfg = state.config
         if (cfg != null && state.phase != Phase.SETUP) {
-            Box(Modifier.size(22.dp).clip(CircleShape).background(if (state.side == Q.YOU) QColors.Ivory else QColors.Cinnabar).border(1.5.dp, QColors.Ink, CircleShape))
+            Box(Modifier.size(22.dp).clip(CircleShape).background(sideColor(state.side, settings.skin)).border(1.5.dp, QColors.Ink, CircleShape))
             Spacer(Modifier.width(10.dp))
         }
         val title = when {
             cfg == null || state.phase == Phase.SETUP -> stringResource(R.string.tab_play)
+            cfg.local -> stringResource(R.string.seat_side_turn, sideName(state.side, settings.skin))
             state.humansTurn -> stringResource(R.string.seat_you)
             else -> stringResource(R.string.title_them, levelName(cfg.level))
         }
         Txt(title, "play/title", style = PicoTheme.typography.titleLarge, modifier = Modifier.weight(1f))
         if (state.phase == Phase.THINKING) CircularProgressIndicator(modifier = Modifier.size(28.dp))
-        if (cfg != null && state.phase != Phase.THINKING) Txt(levelName(cfg.level), "play/level", style = PicoTheme.typography.labelLarge, color = QColors.InkSecondary)
+        if (cfg != null && state.phase != Phase.THINKING) Txt(if (cfg.local) stringResource(R.string.mode_local) else levelName(cfg.level), "play/level", style = PicoTheme.typography.labelLarge, color = QColors.InkSecondary)
     }
 }
 
 /** The one sentence of the moment (status, alerts, the coach lines of the first game, why a wall can't go there). */
 @Composable
-private fun statusText(state: PlayState): String {
+private fun statusText(state: PlayState, skin: Skin): String {
     val alert = state.alert
     val hold = state.hold
     val rej = state.reject
@@ -242,7 +268,9 @@ private fun statusText(state: PlayState): String {
             AlertKind.THEIRS -> R.string.alert_theirs
             AlertKind.FAR -> R.string.alert_far
             AlertKind.NO_WALLS -> R.string.fail_no_walls
-            AlertKind.HOLD_TO_DRAG -> R.string.alert_hold
+            AlertKind.THEIR_WALLS -> R.string.alert_their_walls
+            AlertKind.TAP_SLOT -> R.string.alert_tap_slot
+            AlertKind.PLACE_NEEDS_SLOT -> R.string.alert_place_needs_slot
             AlertKind.NOT_YOUR_TURN -> R.string.alert_turn
             AlertKind.NO_UNDO -> R.string.alert_no_undo
             AlertKind.ORIENT_NEEDS_WALL -> R.string.orient_wait_line
@@ -254,6 +282,8 @@ private fun statusText(state: PlayState): String {
         state.restored -> stringResource(R.string.status_restored)
         state.coachLit -> stringResource(R.string.coach_1)
         state.hintOn && state.hint != null -> stringResource(R.string.status_hint)
+        state.config?.local == true && state.pos.left[state.side] == 0 -> stringResource(R.string.seat_side_turn, sideName(state.side, skin)) + " · " + stringResource(R.string.status_idle_nowalls)
+        state.config?.local == true -> stringResource(R.string.status_local_idle, sideName(state.side, skin))
         state.humansTurn && myDist <= 2 && state.pos.left[Q.AI] == 0 -> stringResource(R.string.status_close)
         state.humansTurn && state.pos.left[Q.YOU] == 0 -> stringResource(R.string.status_idle_nowalls)
         else -> stringResource(R.string.status_idle)
@@ -266,9 +296,9 @@ private fun Card(modifier: Modifier = Modifier, content: @Composable () -> Unit)
 }
 
 @Composable
-private fun StatusCard(state: PlayState) {
+private fun StatusCard(state: PlayState, skin: Skin) {
     val red = state.reject != null || state.hold?.fail != null || state.alert != null
-    Card { Txt(statusText(state), "play/status", style = PicoTheme.typography.titleMedium, color = if (red) QColors.ErrorText else QColors.Ink, maxLines = 2) }
+    Card { Txt(statusText(state, skin), "play/status", style = PicoTheme.typography.titleMedium, color = if (red) QColors.ErrorText else QColors.Ink, maxLines = 2) }
 }
 
 /** [横 / 竖] (T5): live only with a wall in hand (it writes the current way); otherwise it says why on a press (D43). */
@@ -308,8 +338,8 @@ private fun SoftButton(text: String, sub: String?, tag: String, live: Boolean, i
 @Composable
 private fun WallsRow(state: PlayState) {
     Row(Modifier.fillMaxWidth().height(36.dp), verticalAlignment = Alignment.CenterVertically) {
-        Txt(stringResource(R.string.walls_count, state.wallsLeft[Q.YOU], state.wallsLeft[Q.AI]), "play/walls", style = PicoTheme.typography.titleSmall, color = QColors.Ink, modifier = Modifier.weight(1f))
-        WallPips(state.wallsLeft[Q.YOU])
+        Txt(stringResource(if (state.config?.local == true) R.string.walls_count_local else R.string.walls_count, state.wallsLeft[Q.YOU], state.wallsLeft[Q.AI]), "play/walls", style = PicoTheme.typography.titleSmall, color = QColors.Ink, modifier = Modifier.weight(1f))
+        WallPips(state.wallsLeft[if (state.config?.local == true) state.side else Q.YOU])
     }
 }
 
@@ -342,18 +372,24 @@ private fun ConfirmPage(q: Int, line: Int, no: Int, yes: Int, icon: Int, onYes: 
 @Composable
 private fun ResultPage(state: PlayState, graph: Graph) {
     val w = state.winner ?: return
+    val local = state.config?.local == true
+    val skin = graph.settings.value.skin
     PageColumn {
         Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(26.dp).clip(CircleShape).background(if (w == Q.YOU) QColors.Ivory else QColors.Cinnabar).border(1.5.dp, QColors.Ink, CircleShape))
+            Box(Modifier.size(26.dp).clip(CircleShape).background(sideColor(w, skin)).border(1.5.dp, QColors.Ink, CircleShape))
             Spacer(Modifier.width(12.dp))
-            Txt(stringResource(if (w == Q.YOU) R.string.result_win else R.string.result_lose), "result/title", style = PicoTheme.typography.titleLarge.copy(fontSize = 34.sp, fontWeight = FontWeight.Bold), color = QColors.Ink, modifier = Modifier.weight(1f))
-            state.config?.let { Txt(levelName(it.level), "result/level", style = PicoTheme.typography.labelLarge, color = QColors.InkSecondary) }
+            Txt(if (local) stringResource(R.string.result_side_won, sideName(w, skin)) else stringResource(if (w == Q.YOU) R.string.result_win else R.string.result_lose), "result/title", style = PicoTheme.typography.titleLarge.copy(fontSize = 34.sp, fontWeight = FontWeight.Bold), color = QColors.Ink, modifier = Modifier.weight(1f))
+            state.config?.let { Txt(if (it.local) stringResource(R.string.mode_local) else levelName(it.level), "result/level", style = PicoTheme.typography.labelLarge, color = QColors.InkSecondary) }
         }
-        val reason = stringResource(when { state.resigned -> R.string.reason_resigned; w == Q.YOU -> R.string.reason_you_first; else -> R.string.reason_they_first })
+        val reason = if (local && !state.resigned) stringResource(R.string.reason_side_first, sideName(w, skin))
+            else stringResource(when { state.resigned -> R.string.reason_resigned; w == Q.YOU -> R.string.reason_you_first; else -> R.string.reason_they_first })
         Txt(reason + " " + stringResource(R.string.result_again_line), "result/reason", style = PicoTheme.typography.titleMedium, color = QColors.Ink, maxLines = 2)
         Row(Modifier.fillMaxWidth().height(72.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StatCell(stringResource(R.string.res_moves), stringResource(R.string.res_moves_v, state.stats.movesYou), Modifier.weight(1f))
-            StatCell(stringResource(R.string.res_detour), stringResource(R.string.res_detour_v, state.stats.detourGiven), Modifier.weight(1f))
+            if (local) StatCell(stringResource(R.string.res_turns), stringResource(R.string.res_turns_v, state.turnNo + 1), Modifier.weight(1f))
+            else {
+                StatCell(stringResource(R.string.res_moves), stringResource(R.string.res_moves_v, state.stats.movesYou), Modifier.weight(1f))
+                StatCell(stringResource(R.string.res_detour), stringResource(R.string.res_detour_v, state.stats.detourGiven), Modifier.weight(1f))
+            }
             StatCell(stringResource(R.string.res_walls), "${state.wallsLeft[Q.YOU]} / ${state.wallsLeft[Q.AI]}", Modifier.weight(1f))
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -390,17 +426,22 @@ private fun NewPage(state: PlayState, settings: Settings, graph: Graph) {
         } else {
             Txt(stringResource(R.string.new_title), "new/title", style = PicoTheme.typography.titleLarge, modifier = Modifier.height(40.dp))
         }
+        val local = setup.mode == Mode.LOCAL
+        Group(stringResource(R.string.new_mode), "new/mode") {
+            // gate:allow tabs-segment same-page option of the new game (titled group: vs computer / two players on one headset), not a page switch
+            Segments(listOf(Mode.AI to stringResource(R.string.mode_ai), Mode.LOCAL to stringResource(R.string.mode_local)), setup.mode, "new/mode", { m -> set { it.copy(mode = m) } }, Modifier.fillMaxWidth())
+        }
         Group(stringResource(R.string.new_first), "new/first") {
             // gate:allow tabs-segment same-page option of the new game (titled group: who starts), not a page switch
-            Segments(listOf(FirstPick.ME to stringResource(R.string.first_me), FirstPick.THEM to stringResource(R.string.first_them), FirstPick.RANDOM to stringResource(R.string.first_random)),
+            Segments(listOf(FirstPick.ME to stringResource(if (local) R.string.first_near else R.string.first_me), FirstPick.THEM to stringResource(if (local) R.string.first_far else R.string.first_them), FirstPick.RANDOM to stringResource(R.string.first_random)),
                 setup.first, "new/first", { f -> set { it.copy(first = f) } }, Modifier.fillMaxWidth())
         }
-        Group(stringResource(R.string.new_level), "new/level") {
+        if (!local) Group(stringResource(R.string.new_level), "new/level") {
             // gate:allow tabs-segment same-page option of the new game (titled group: opponent level), not a page switch
             Segments(Engine.LEVELS.map { it to levelName(it) }, setup.level, "new/level", { l -> set { it.copy(level = l) } }, Modifier.fillMaxWidth())
         }
-        Txt(stringResource(when (setup.level) { Engine.EASY -> R.string.level_1_line; Engine.MEDIUM -> R.string.level_2_line; else -> R.string.level_3_line }),
-            "new/level-line", style = PicoTheme.typography.bodyMedium, color = QColors.InkSecondary, maxLines = 2, modifier = Modifier.height(44.dp))
+        Txt(if (local) stringResource(R.string.new_local_line) else stringResource(when (setup.level) { Engine.EASY -> R.string.level_1_line; Engine.MEDIUM -> R.string.level_2_line; else -> R.string.level_3_line }),
+            "new/level-line", style = PicoTheme.typography.bodyMedium, color = QColors.InkSecondary, maxLines = 2, modifier = Modifier.height(if (local) 72.dp else 44.dp))
         PrimaryButton(stringResource(R.string.btn_start), "new/start", onClick = {
             if (state.hasProgress) { Ui.newConfirm = true; Log.i(TAG, "CONFIRM NEW_GAME S13") } else start()
         }, modifier = Modifier.fillMaxWidth())
@@ -460,12 +501,12 @@ private fun RulesPage(state: PlayState, graph: Graph) {
 private fun RulesDiagram(skin: Skin) {
     // the picture uses the board's own skin colours (QA r2: it was the old teal board with orange / white pawns)
     val modern = skin == Skin.MODERN
-    val frame = if (modern) androidx.compose.ui.graphics.Color(0xFFE2D3B8) else QColors.Walnut
-    val cellC = if (modern) androidx.compose.ui.graphics.Color(0xFFE3EAE6) else androidx.compose.ui.graphics.Color(0xFF10251F)
-    val wallC = if (modern) androidx.compose.ui.graphics.Color(0xFF33383D) else QColors.Maple
-    val you = if (modern) androidx.compose.ui.graphics.Color(0xFFFF6B57) else QColors.Ivory
-    val them = if (modern) androidx.compose.ui.graphics.Color(0xFF1E3A68) else androidx.compose.ui.graphics.Color(0xFFC55C3D)
-    val band = if (modern) you else QColors.BandGold
+    val frame = if (modern) androidx.compose.ui.graphics.Color(0xFFB9AE9C) else androidx.compose.ui.graphics.Color(0xFF9A7856)
+    val cellC = if (modern) androidx.compose.ui.graphics.Color(0xFF737A75) else androidx.compose.ui.graphics.Color(0xFF70847A)
+    val wallC = if (modern) androidx.compose.ui.graphics.Color(0xFF2C3235) else androidx.compose.ui.graphics.Color(0xFF3A2819)
+    val you = sideColor(Q.YOU, skin)
+    val them = sideColor(Q.AI, skin)
+    val band = if (modern) androidx.compose.ui.graphics.Color(0xFFFFD2C4) else QColors.BandGold
     Canvas(Modifier.size(132.dp)) {
         val cell = size.width / 9f
         drawRoundRect(frame, Offset.Zero, size, CornerRadius(8f, 8f))

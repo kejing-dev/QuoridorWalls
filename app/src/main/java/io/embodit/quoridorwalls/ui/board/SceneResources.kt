@@ -48,6 +48,9 @@ internal class SceneResources private constructor() {
     lateinit var ghost: MeshResource; private set
     lateinit var flash: MeshResource; private set
     lateinit var gazeParts: List<GazeTargets.Part>; private set
+    /** The 5 mm stud on a slot crossing (visible only with a wall in hand) and its per-skin material. */
+    lateinit var stud: MeshResource; private set
+    lateinit var studMat: Map<Skin, Material>; private set
 
     /** design skins.shared + board-game.md「每套皮肤逐个核标记」: per skin, so every mark stands >= 25 L* off the cells. */
     class MarkSet(val body: Material, val hint: Material, val select: Material, val hover: Material, val last: Material, val goal: Material, val alert: Material)
@@ -75,6 +78,9 @@ internal class SceneResources private constructor() {
     lateinit var pawnShape: ShapeResource; private set
     lateinit var railShape: ShapeResource; private set
     lateinit var wallShapeH: ShapeResource; private set
+    lateinit var wallHitShape: ShapeResource; private set
+    lateinit var ghostShape: ShapeResource; private set
+    lateinit var slotShape: ShapeResource; private set
     lateinit var physics: PhysicsMaterialResource; private set
 
     fun close() {
@@ -102,8 +108,8 @@ internal class SceneResources private constructor() {
                 async(io) { r.ringSelect = MeshResource.createTorus(outerRingRadius = 0.0215f, innerRingRadius = 0.0180f).keep() },
                 async(io) { r.ringJump = MeshResource.createTorus(outerRingRadius = 0.0090f, innerRingRadius = 0.0068f).keep() },
                 async(io) { r.ringJumpHalo = MeshResource.createTorus(outerRingRadius = 0.0098f, innerRingRadius = 0.0060f).keep() },
-                async(io) { r.ringMark = MeshResource.createTorus(outerRingRadius = 0.0090f, innerRingRadius = 0.0066f).keep() },
-                async(io) { r.ringLast = MeshResource.createTorus(outerRingRadius = 0.0070f, innerRingRadius = 0.0052f).keep() },
+                async(io) { r.ringMark = MeshResource.createTorus(outerRingRadius = 0.0095f, innerRingRadius = 0.0065f).keep() },
+                async(io) { r.ringLast = MeshResource.createTorus(outerRingRadius = 0.0078f, innerRingRadius = 0.0048f).keep() },
                 async(io) { r.ringGoal = MeshResource.createTorus(outerRingRadius = 0.0215f, innerRingRadius = 0.0172f).keep() },
                 async(io) { r.dot = MeshResource.createTorus(outerRingRadius = 0.0060f, innerRingRadius = 0.0006f).keep() },
                 async(io) { r.dotHalo = MeshResource.createTorus(outerRingRadius = 0.0068f, innerRingRadius = 0.0006f).keep() },
@@ -114,23 +120,27 @@ internal class SceneResources private constructor() {
                 async(io) { r.ghost = MeshResource.createBox(Vector3(Layout.WALL_L, Layout.WALL_H, Layout.WALL_T), cornerRadius = 0.001f).keep() },
                 // gate:allow geometry red flash shell around a rejected wall (S08 indicator), not a prop
                 async(io) { r.flash = MeshResource.createBox(Vector3(Layout.WALL_L + 0.003f, Layout.WALL_H + 0.003f, Layout.WALL_T + 0.003f), cornerRadius = 0.0015f).keep() },
+                // gate:allow geometry slot stud: the 5 mm abstract drop-point marker the system hover draws on (README 通用模式)
+                async(io) { r.stud = MeshResource.createCylinder(radius = Layout.STUD_D / 2, height = Layout.STUD_H).keep() },
+                // slot studs: the grooves' colour family, half a shade darker, PBR like the board (README: <= 5 mm)
+                async(io) { r.studMat = mapOf(Skin.MODERN to pbr(Color(0xFF525853), 0.6f).keep(), Skin.CLASSIC to pbr(Color(0xFF4E5D55), 0.6f).keep()) },
                 async(io) { r.gazeParts = GazeTargets.markerMeshes(Layout.CELL, GazeTargets.Style(fraction = 0.70f, thick = 0.0015f, corner = 0.004f)).onEach { it.mesh.keep() } },
                 async(io) { r.white = unlit(Color(0xFFFFFFFF), 0.85f).keep() },
                 async(io) {
                     r.marks = mapOf(
-                        // light modern board (cells ~80 L*): dark marks
+                        // v0.1.4 mid-tone stone-sage board (cells L* ~50, rendered ~43): every mark light (dark thin rings rendered only 8-11 L* off)
                         Skin.MODERN to MarkSet(
-                            body = unlit(Color(0xFF1F3B34), 0.95f).keep(), hint = unlit(Color(0xFFB06200), 0.95f).keep(),
-                            select = unlit(Color(0xFFB06200), 0.95f).keep(), hover = unlit(Color(0xFF1F3B34), 0.6f).keep(),
-                            last = unlit(Color(0xFF555A60), 0.9f).keep(), goal = unlit(Color(0xFFB06200), 0.95f).keep(),
-                            alert = unlit(Color(0xFFC8463A), 0.95f).keep(),
+                            body = unlit(Color(0xFFFFFFFF), 0.95f).keep(), hint = unlit(Color(0xFFFFD15C), 0.95f).keep(),
+                            select = unlit(Color(0xFFFFD15C), 0.95f).keep(), hover = unlit(Color(0xFFFFFFFF), 0.6f).keep(),
+                            last = unlit(Color(0xFFC9D6E3), 0.95f).keep(), goal = unlit(Color(0xFFFFD15C), 0.95f).keep(),
+                            alert = unlit(Color(0xFFFFC9C0), 0.95f).keep(),
                         ),
-                        // dark classic board (cells ~17 L*): light marks, no dark outline
+                        // v0.1.4 mid-tone celadon board (cells L* ~53, rendered ~44): every mark light, the same set as modern
                         Skin.CLASSIC to MarkSet(
-                            body = unlit(Color(0xFFFFFFFF), 0.95f).keep(), hint = unlit(Color(0xFFFFB000), 0.95f).keep(),
-                            select = unlit(Color(0xFFFFB000), 0.95f).keep(), hover = unlit(Color(0xFFFFFFFF), 0.6f).keep(),
-                            last = unlit(Color(0xFFA8ADB2), 0.9f).keep(), goal = unlit(Color(0xFFF2C14E), 0.95f).keep(),
-                            alert = unlit(Color(0xFFFF6A5A), 0.95f).keep(),
+                            body = unlit(Color(0xFFFFFFFF), 0.95f).keep(), hint = unlit(Color(0xFFFFD15C), 0.95f).keep(),
+                            select = unlit(Color(0xFFFFD15C), 0.95f).keep(), hover = unlit(Color(0xFFFFFFFF), 0.6f).keep(),
+                            last = unlit(Color(0xFFC9D6E3), 0.95f).keep(), goal = unlit(Color(0xFFFFD15C), 0.95f).keep(),
+                            alert = unlit(Color(0xFFFFC9C0), 0.95f).keep(),
                         ),
                     )
                 },
@@ -142,10 +152,10 @@ internal class SceneResources private constructor() {
                 async(io) { r.creamFaint = unlit(Color(0xFFFFFFFF), 0.55f).keep() },
                 async(io) { r.gold = unlit(Color(0xFFF2C14E), 0.9f).keep() },
                 async(io) { r.columnMat = unlit(Color(0xFFFFFFFF), 0.6f).keep() },
-                async(io) { r.bandYou = mapOf(Skin.MODERN to unlit(Color(0xFFFF6B57), 0.85f).keep(), Skin.CLASSIC to unlit(Color(0xFFF2C14E), 0.85f).keep()) },
-                async(io) { r.bandAi = mapOf(Skin.MODERN to unlit(Color(0xFF1E3A68), 0.85f).keep(), Skin.CLASSIC to unlit(Color(0xFF4FA3E0), 0.85f).keep()) },
+                async(io) { r.bandYou = mapOf(Skin.MODERN to unlit(Color(0xFFFFE6DC), 0.9f).keep(), Skin.CLASSIC to unlit(Color(0xFFF2D27A), 0.9f).keep()) },
+                async(io) { r.bandAi = mapOf(Skin.MODERN to unlit(Color(0xFF1E3A68), 0.9f).keep(), Skin.CLASSIC to unlit(Color(0xFF3A1210), 0.9f).keep()) },
                 // GazeTargets: a visible, opaque plate one shade darker than the cells carries the system hover highlight
-                async(io) { r.gaze = mapOf(Skin.MODERN to pbr(Color(0xFFE3EAE6), 0.75f).keep(), Skin.CLASSIC to pbr(Color(0xFF0E221D), 0.4f).keep()) },
+                async(io) { r.gaze = mapOf(Skin.MODERN to pbr(Color(0xFF6B726D), 0.72f).keep(), Skin.CLASSIC to pbr(Color(0xFF677A70), 0.65f).keep()) },
                 async(io) { r.ghostOk = unlit(Color(0xFFF5EBD2), 0.45f).keep() },
                 async(io) { r.ghostBad = unlit(Color(0xFFC8463A), 0.5f).keep() },
                 async(io) { r.ghostOff = unlit(Color(0xFF9A9A9A), 0.35f).keep() },
@@ -154,8 +164,12 @@ internal class SceneResources private constructor() {
                 async(io) { r.slotGlow = unlit(Color(0xFFFFFFFF), 0.30f).keep() },
                 async(io) { r.cellShape = ShapeResource.createBox(Vector3(Layout.CELL, 0.004f, Layout.CELL)).keep() },
                 async(io) { r.pawnShape = ShapeResource.createBox(Vector3(Layout.CELL, 0.030f, Layout.CELL)).keep() },
-                async(io) { r.railShape = ShapeResource.createBox(Vector3(Layout.BOARD_W, 0.03f, Layout.RAIL)).keep() },
+                async(io) { r.railShape = ShapeResource.createBox(Vector3(Layout.TRAY_SIZE.x, 0.008f, Layout.TRAY_SIZE.z)).keep() },
                 async(io) { r.wallShapeH = ShapeResource.createBox(Vector3(Layout.WALL_L, Layout.WALL_H, Layout.WALL_T)).keep() },
+                // a tray wall lies rotated -90° about X: its local y runs along the board, local z along the board normal
+                async(io) { r.wallHitShape = ShapeResource.createBox(Vector3(Layout.WALL_HIT.x, Layout.WALL_HIT.y, Layout.WALL_HIT.z)).keep() },
+                async(io) { r.ghostShape = ShapeResource.createBox(Vector3(Layout.WALL_HIT.x, Layout.WALL_HIT.y, Layout.WALL_HIT.z)).keep() },
+                async(io) { r.slotShape = ShapeResource.createBox(Vector3(Layout.PITCH, 0.012f, Layout.PITCH)).keep() },
                 async(io) { r.physics = PhysicsMaterialResource().keep() },
             ).awaitAll()
             r

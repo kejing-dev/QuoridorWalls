@@ -16,7 +16,7 @@ import io.embodit.quoridorwalls.ui.theme.QTheme
 
 /**
  * Two surfaces in Shared Space (design windowModel volume_plus_control_window): the board volume (default container,
- * 0.56 x 0.36 x 0.62 m from the manifest) and the control window (Planar 520 x 400 dp, min 480 x 320, max 900 x 640) to
+ * 0.66 x 0.44 x 0.62 m from the manifest) and the control window (Planar 520 x 400 dp, min 480 x 320, max 900 x 640) to
  * its right. First open and every reopen use Placement.right(board) (profile D44: no "in front of you" in Shared Space).
  */
 fun mainApp(scope: SpatialAppScope) =
