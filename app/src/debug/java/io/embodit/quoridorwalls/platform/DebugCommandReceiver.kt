@@ -98,6 +98,7 @@ class DebugCommandReceiver : BroadcastReceiver() {
                     ents.firstOrNull()?.let { listener.onTap(resolveUp(it, resolver).first, src, null) }
                 }
             }
+            "marks" -> SceneHolder.scene?.markFilter = when (a) { "", "all" -> null; "none" -> emptySet(); else -> a.split(",").toSet() }
             "skin" -> settings { it.copy(skin = if (a == "classic") Skin.CLASSIC else Skin.MODERN) }
             "move" -> Q.parseCell(a)?.let { flow.tapCell(it) }
             "pick" -> flow.pickWall()

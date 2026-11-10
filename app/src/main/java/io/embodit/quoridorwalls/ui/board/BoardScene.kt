@@ -96,6 +96,9 @@ internal class BoardScene(private val flow: GameFlow) {
     private val pawnGlide = List(2) { Glide() }
 
     private val hover = HoverTracker()
+    /** Debug `marks <type>|all|none`: show only one kind of mark (dot, jump, select, hint, alert, hover, last, goal) to measure it. */
+    @Volatile var markFilter: Set<String>? = null
+    private fun shown(kind: String) = markFilter?.contains(kind) ?: true
     private var clock = 0f
     private var slotCacheKey: String? = null
     private var slotCache: List<Wall> = emptyList()
@@ -150,9 +153,10 @@ internal class BoardScene(private val flow: GameFlow) {
 
     private fun clone(e: Entity, name: String): Entity = e.clone(Entity.CloneOptions(recursive = true, shouldShareMaterialInstance = true))!!.also { it.enabled = true; it.setName(name) }
 
-    private fun markOf(mesh: MeshResource, m: Material, haloMesh: MeshResource?, r: SceneResources, name: String): Mark {
+    /** A floating mark; [inner] = an extra mesh in the same colour (the jump mark is a ring with the step dot inside). */
+    private fun markOf(mesh: MeshResource, m: Material, inner: MeshResource?, r: SceneResources, name: String): Mark {
         val e = ModelEntity(mesh, m).apply { setName(name); enabled = false; tiltRoot.addChild(this) }
-        val halo = haloMesh?.let { ModelEntity(it, r.outline).apply { setName("$name:halo"); transform().setPosition(Vector3(0f, -0.0005f, 0f)); e.addChild(this) } }
+        val halo = inner?.let { ModelEntity(it, m).apply { setName("$name:dot"); e.addChild(this) } }
         val col = ModelEntity(r.column, r.columnMat).apply { setName("$name:column"); enabled = false; tiltRoot.addChild(this) }
         return Mark(e, halo, col)
     }
@@ -217,13 +221,14 @@ internal class BoardScene(private val flow: GameFlow) {
             pawns += holder
             pawnModels += kids
         }
-        repeat(5) { i -> dots += markOf(r.dot, r.white, r.dotHalo, r, "dot:$i"); jumps += markOf(r.ringJump, r.white, r.ringJumpHalo, r, "jump:$i") }
-        hintMark = markOf(r.ringMark, r.amber, null, r, "hintMark")
-        alertMark = markOf(r.ringMark, r.red, null, r, "alertMark")
-        hoverMark = markOf(r.ringMark, r.creamFaint, null, r, "hoverMark")
-        lastMark = markOf(r.ringLast, r.grey, null, r, "lastMark")
-        selectRing = flat(r.ringSelect, r.amber, "selectRing")
-        goalRing = flat(r.ringGoal, r.gold, "goalRing")
+        val ms = r.marks.getValue(settings.skin)
+        repeat(5) { i -> dots += markOf(r.dot, ms.body, null, r, "dot:$i"); jumps += markOf(r.ringJump, ms.body, r.dot, r, "jump:$i") }
+        hintMark = markOf(r.ringMark, ms.hint, null, r, "hintMark")
+        alertMark = markOf(r.ringMark, ms.alert, null, r, "alertMark")
+        hoverMark = markOf(r.ringMark, ms.hover, null, r, "hoverMark")
+        lastMark = markOf(r.ringLast, ms.last, null, r, "lastMark")
+        selectRing = flat(r.ringSelect, ms.select, "selectRing")
+        goalRing = flat(r.ringGoal, ms.goal, "goalRing")
         for (side in 0..1) repeat(24) { i -> bands[side] += flat(r.unitPlane, if (side == Q.YOU) r.bandYou.getValue(settings.skin) else r.bandAi.getValue(settings.skin), "band:$side:$i") }
         repeat(64) { i -> slotGlows += flat(r.unitPlane, r.slotGlow, "slotGlow:$i") }
         railGlow = flat(r.unitPlane, r.amberSoft, "railGlow")
@@ -253,6 +258,12 @@ internal class BoardScene(private val flow: GameFlow) {
         gazePlates.forEach { it.components[ModelComponent::class.java]?.materials?.set(0, r.gaze.getValue(skin)) }
         bands[Q.YOU].forEach { it.components[ModelComponent::class.java]?.materials?.set(0, r.bandYou.getValue(skin)) }
         bands[Q.AI].forEach { it.components[ModelComponent::class.java]?.materials?.set(0, r.bandAi.getValue(skin)) }
+        // marks follow the skin too (QA q3-1)
+        val ms = r.marks.getValue(skin)
+        fun mat(e: Entity?, m: Material) { (e as? ModelEntity)?.components?.get(ModelComponent::class.java)?.materials?.set(0, m) }
+        (dots + jumps).forEach { mk -> mat(mk.e, ms.body); mat(mk.halo, ms.body) }
+        hintMark?.let { mat(it.e, ms.hint) }; alertMark?.let { mat(it.e, ms.alert) }; hoverMark?.let { mat(it.e, ms.hover) }; lastMark?.let { mat(it.e, ms.last) }
+        mat(selectRing, ms.select); mat(goalRing, ms.goal)
         Log.i(TAG, "SKIN $skin")
     }
 
@@ -406,15 +417,15 @@ internal class BoardScene(private val flow: GameFlow) {
         val showSteps = human && (sel || (st.coachLit && st.phase == Phase.IDLE))
         val steps = if (showSteps) st.steps else emptyList()
         var di = 0; var ji = 0
-        for (s in steps) if (s.jump) jumps.getOrNull(ji++)?.let { showMark(it, s.to) } else dots.getOrNull(di++)?.let { showMark(it, s.to) }
+        for (s in steps) if (s.jump) jumps.getOrNull(ji++)?.let { showMark(it, s.to.takeIf { shown("jump") }) } else dots.getOrNull(di++)?.let { showMark(it, s.to.takeIf { shown("dot") }) }
         for (i in di until dots.size) showMark(dots[i], null)
         for (i in ji until jumps.size) showMark(jumps[i], null)
         selectRing?.let { ring ->
-            ring.enabled = sel && human
+            ring.enabled = sel && human && shown("select")
             if (ring.enabled) place(ring, lay.cellTop(pos.pawns[st.side], 0.0012f))
         }
         val hint = st.hint?.takeIf { st.hintOn && human && (st.phase == Phase.IDLE || st.phase == Phase.SELECTED) }
-        showMark(hintMark, (hint as? Move.Step)?.to, if (reduced) 1f else 1f + 0.05f * sin(clock * 5f))
+        showMark(hintMark, (hint as? Move.Step)?.to?.takeIf { shown("hint") }, if (reduced) 1f else 1f + 0.05f * sin(clock * 5f))
         hintGhost?.let { g ->
             val h = hint as? Move.Place
             g.enabled = h != null
@@ -422,20 +433,20 @@ internal class BoardScene(private val flow: GameFlow) {
         }
         val al = st.alert
         val flashing = al?.cell != null && (st.freezeMs != null || (now - al.at < 600 && ((now - al.at) / 100) % 2 == 0L))
-        showMark(alertMark, if (flashing) al!!.cell else null)
+        showMark(alertMark, if (flashing && shown("alert")) al!!.cell else null)
         val last = st.last?.move as? Move.Step
         val lastFrom = last?.from?.takeIf { st.anim == null && st.phase != Phase.RESULT && it != pos.pawns[0] && it != pos.pawns[1] }
-        showMark(lastMark, lastFrom)
+        showMark(lastMark, lastFrom?.takeIf { shown("last") })
         val hoverCell = when {
             hovered == null -> null
             hovered.startsWith("sq:") -> hovered.removePrefix("sq:").toIntOrNull()
             hovered.startsWith("pawn:") -> hovered.removePrefix("pawn:").toIntOrNull()?.let { pos.pawns[it] }
             else -> null
         }
-        showMark(hoverMark, hoverCell)
+        showMark(hoverMark, hoverCell?.takeIf { shown("hover") })
         goalRing?.let { ring ->
             val w = if (st.goalAt > 0) pos.winner() else null
-            ring.enabled = w != null
+            ring.enabled = w != null && shown("goal")
             if (w != null) place(ring, lay.cellTop(pos.pawns[w], 0.0012f))
         }
 

@@ -49,6 +49,9 @@ internal class SceneResources private constructor() {
     lateinit var flash: MeshResource; private set
     lateinit var gazeParts: List<GazeTargets.Part>; private set
 
+    /** design skins.shared + board-game.md「每套皮肤逐个核标记」: per skin, so every mark stands >= 25 L* off the cells. */
+    class MarkSet(val body: Material, val hint: Material, val select: Material, val hover: Material, val last: Material, val goal: Material, val alert: Material)
+    lateinit var marks: Map<Skin, MarkSet>; private set
     lateinit var white: Material; private set
     lateinit var outline: Material; private set
     lateinit var amber: Material; private set
@@ -113,6 +116,24 @@ internal class SceneResources private constructor() {
                 async(io) { r.flash = MeshResource.createBox(Vector3(Layout.WALL_L + 0.003f, Layout.WALL_H + 0.003f, Layout.WALL_T + 0.003f), cornerRadius = 0.0015f).keep() },
                 async(io) { r.gazeParts = GazeTargets.markerMeshes(Layout.CELL, GazeTargets.Style(fraction = 0.70f, thick = 0.0015f, corner = 0.004f)).onEach { it.mesh.keep() } },
                 async(io) { r.white = unlit(Color(0xFFFFFFFF), 0.85f).keep() },
+                async(io) {
+                    r.marks = mapOf(
+                        // light modern board (cells ~80 L*): dark marks
+                        Skin.MODERN to MarkSet(
+                            body = unlit(Color(0xFF1F3B34), 0.95f).keep(), hint = unlit(Color(0xFFB06200), 0.95f).keep(),
+                            select = unlit(Color(0xFFB06200), 0.95f).keep(), hover = unlit(Color(0xFF1F3B34), 0.6f).keep(),
+                            last = unlit(Color(0xFF555A60), 0.9f).keep(), goal = unlit(Color(0xFFB06200), 0.95f).keep(),
+                            alert = unlit(Color(0xFFC8463A), 0.95f).keep(),
+                        ),
+                        // dark classic board (cells ~17 L*): light marks, no dark outline
+                        Skin.CLASSIC to MarkSet(
+                            body = unlit(Color(0xFFFFFFFF), 0.95f).keep(), hint = unlit(Color(0xFFFFB000), 0.95f).keep(),
+                            select = unlit(Color(0xFFFFB000), 0.95f).keep(), hover = unlit(Color(0xFFFFFFFF), 0.6f).keep(),
+                            last = unlit(Color(0xFFA8ADB2), 0.9f).keep(), goal = unlit(Color(0xFFF2C14E), 0.95f).keep(),
+                            alert = unlit(Color(0xFFFF6A5A), 0.95f).keep(),
+                        ),
+                    )
+                },
                 async(io) { r.outline = unlit(Color(0xFF1F3B34), 0.85f).keep() },
                 async(io) { r.amber = unlit(Color(0xFFFFB000), 0.9f).keep() },
                 async(io) { r.amberSoft = unlit(Color(0xFFFFB000), 0.45f).keep() },
@@ -124,7 +145,7 @@ internal class SceneResources private constructor() {
                 async(io) { r.bandYou = mapOf(Skin.MODERN to unlit(Color(0xFFFF6B57), 0.85f).keep(), Skin.CLASSIC to unlit(Color(0xFFF2C14E), 0.85f).keep()) },
                 async(io) { r.bandAi = mapOf(Skin.MODERN to unlit(Color(0xFF1E3A68), 0.85f).keep(), Skin.CLASSIC to unlit(Color(0xFF4FA3E0), 0.85f).keep()) },
                 // GazeTargets: a visible, opaque plate one shade darker than the cells carries the system hover highlight
-                async(io) { r.gaze = mapOf(Skin.MODERN to pbr(Color(0xFFE3EAE6), 0.75f).keep(), Skin.CLASSIC to pbr(Color(0xFF16302B), 0.4f).keep()) },
+                async(io) { r.gaze = mapOf(Skin.MODERN to pbr(Color(0xFFE3EAE6), 0.75f).keep(), Skin.CLASSIC to pbr(Color(0xFF122A25), 0.4f).keep()) },
                 async(io) { r.ghostOk = unlit(Color(0xFFF5EBD2), 0.45f).keep() },
                 async(io) { r.ghostBad = unlit(Color(0xFFC8463A), 0.5f).keep() },
                 async(io) { r.ghostOff = unlit(Color(0xFF9A9A9A), 0.35f).keep() },
